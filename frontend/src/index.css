@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-1: #F9F4EC;
+  --color-2: #F3E9DA;
+  --color-3: #E9D9BD;
+  --color-4: #DDC398;
+  --color-5: #CEA869;
+  --color-6: #B27715;
+  --color-7: #9D6912;
+  --color-8: #80560F;
+  --color-9: #64430C;
+  --color-10: #473008;
+
+  --color16: #F9F5FF;
+  --color-11: #A88CD9;
+  --color-12: #866CB6;
+  --color-13: #644D93;
+  --color-14: #442F73;
+  --color-15: #241453;
+  --color17: #aaaaaa;
+
+  --color-50: #F8F8F8;
+  --color-100: #F1F1F1;
+  --color-200: #E4E4E4;
+  --color-300: #D6D6D6;
+  --color-400: #C5C5C5;
+  --color-500-base: #AAAAAA;
+  --color-600: #999999;
+  --color-700: #808080;
+  --color-800: #666666;
+  --color-900: #4C4C4C;
+
+  --color-p-50: #FEF9FF;
+  --color-p-100: #FCF3FF;
+  --color-p-200: #FAEBFF;
+  --color-p-300: #F8DFFF;
+  --color-p-400: #F3CEFF;
+  --color-p-500-base: #EEB7FF;
+  --color-p-600: #D6A5E6;
+  --color-p-700: #BA8FC7;
+  --color-p-800: #9875A3;
+  --color-p-900: #72587A;
+}
+
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #FFFFFF;
+    color: #241453;
+  }
+}
