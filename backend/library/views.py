@@ -4,6 +4,7 @@ from datetime import datetime
 from django.conf import settings
 from django.core.mail import send_mail
 from django.db.models import Prefetch
+from django.db.models.deletion import ProtectedError
 from urllib.request import Request, urlopen
 from django.utils.text import slugify
 from rest_framework import status, viewsets
@@ -69,6 +70,29 @@ class CategoryViewSet(viewsets.ModelViewSet):
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        payload = request.data.copy()
+        if payload.get("name") and "slug" not in payload:
+            payload["slug"] = slugify(str(payload["name"]))
+        serializer = self.get_serializer(instance, data=payload, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError as exc:
+            raise ValidationError(
+                {
+                    "category": f'This category cannot be deleted because {instance.resources.count()} book(s) are still assigned to it.'
+                }
+            ) from exc
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ResourceViewSet(viewsets.ModelViewSet):

@@ -142,6 +142,22 @@ export const api = {
     invalidateCache("/resources/");
     return created;
   },
+  updateCategory: async (id: number, payload: Partial<Pick<Category, "name" | "description" | "color" | "icon" | "slug">>) => {
+    const updated = await request<Category>(`/categories/${id}/`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    invalidateCache("/categories/");
+    invalidateCache("/resources/");
+    return updated;
+  },
+  deleteCategory: async (id: number) => {
+    await request<void>(`/categories/${id}/`, {
+      method: "DELETE",
+    });
+    invalidateCache("/categories/");
+    invalidateCache("/resources/");
+  },
   listResources: () => request<Resource[]>("/resources/"),
   createResource: async (payload: Omit<Resource, "id">) => {
     const created = await request<Resource>("/resources/", {

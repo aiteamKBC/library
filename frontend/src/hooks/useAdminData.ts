@@ -23,6 +23,8 @@ interface AdminDataContextValue {
   usingFallbackData: boolean;
   loadAdminData: () => Promise<void>;
   addCategory: (category: Pick<Category, "name"> & Partial<Pick<Category, "description" | "color" | "icon" | "slug">>) => Promise<Category>;
+  updateCategory: (id: number, updates: Partial<Pick<Category, "name" | "description" | "color" | "icon" | "slug">>) => Promise<Category>;
+  deleteCategory: (id: number) => Promise<void>;
   addBook: (book: Omit<Resource, "id">) => Promise<Resource>;
   updateBook: (id: string, updates: Partial<Resource>) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
@@ -113,6 +115,17 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     return created;
   }, []);
 
+  const updateCategory = useCallback(async (id: number, updates: Partial<Pick<Category, "name" | "description" | "color" | "icon" | "slug">>) => {
+    const updated = await api.updateCategory(id, updates);
+    setCategories((prev) => prev.map((category) => (category.id === id ? updated : category)).sort((a, b) => a.name.localeCompare(b.name)));
+    return updated;
+  }, []);
+
+  const deleteCategory = useCallback(async (id: number) => {
+    await api.deleteCategory(id);
+    setCategories((prev) => prev.filter((category) => category.id !== id));
+  }, []);
+
   const updateBook = useCallback(async (id: string, updates: Partial<Resource>) => {
     const updated = await api.updateResource(id, updates);
     setBooks((prev) => prev.map((b) => (b.id === id ? updated : b)));
@@ -187,6 +200,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     usingFallbackData,
     loadAdminData,
     addCategory,
+    updateCategory,
+    deleteCategory,
     addBook,
     updateBook,
     deleteBook,
@@ -208,6 +223,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     categories,
     books,
     addCategory,
+    updateCategory,
+    deleteCategory,
     deleteBook,
     deleteLoan,
     deleteRequest,

@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
+import type { Category } from "../../../types/library";
 
 interface Props {
+  category?: Category | null;
   onClose: () => void;
 }
 
 const DEFAULT_COLOR = "#442F73";
 const DEFAULT_ICON = "ri-book-open-line";
 
-export default function CategoryFormModal({ onClose }: Props) {
-  const { addCategory } = useAdminData();
+export default function CategoryFormModal({ category, onClose }: Props) {
+  const { addCategory, updateCategory } = useAdminData();
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -20,11 +22,21 @@ export default function CategoryFormModal({ onClose }: Props) {
 
   useEffect(() => {
     setSaved(false);
-  }, []);
+    setForm({
+      name: category?.name ?? "",
+      description: category?.description ?? "",
+      color: category?.color ?? DEFAULT_COLOR,
+      icon: category?.icon ?? DEFAULT_ICON,
+    });
+  }, [category]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    await addCategory(form);
+    if (category) {
+      await updateCategory(category.id, form);
+    } else {
+      await addCategory(form);
+    }
     setSaved(true);
     setTimeout(() => onClose(), 900);
   };
@@ -35,9 +47,13 @@ export default function CategoryFormModal({ onClose }: Props) {
         <div className="flex items-center justify-between p-6 border-b border-gray-100 flex-none">
           <div>
             <h2 className="font-bold text-gray-900 text-lg" style={{ fontFamily: "'Playfair Display', serif" }}>
-              Add New Category
+              {category ? "Edit Category" : "Add New Category"}
             </h2>
-            <p className="text-gray-400 text-xs mt-0.5">Create a category for books that need a clear place in the library.</p>
+            <p className="text-gray-400 text-xs mt-0.5">
+              {category
+                ? "Update the category details used across the library."
+                : "Create a category for books that need a clear place in the library."}
+            </p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 cursor-pointer">
             <i className="ri-close-line text-gray-500" />
@@ -109,7 +125,7 @@ export default function CategoryFormModal({ onClose }: Props) {
             }`}
           >
             <i className={saved ? "ri-check-line" : "ri-save-line"} />
-            {saved ? "Saved!" : "Add Category"}
+            {saved ? "Saved!" : category ? "Save Changes" : "Add Category"}
           </button>
         </div>
       </div>

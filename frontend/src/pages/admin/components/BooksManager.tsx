@@ -2,17 +2,20 @@ import { useState, useMemo } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
 import BookFormModal from "./BookFormModal";
 import CategoryFormModal from "./CategoryFormModal";
-import type { Resource } from "../../../types/library";
+import type { Category, Resource } from "../../../types/library";
 
 export default function BooksManager() {
-  const { books, deleteBook, categories: dbCategories } = useAdminData();
+  const { books, deleteBook, categories: dbCategories, deleteCategory } = useAdminData();
   const categoryColorMap = Object.fromEntries(dbCategories.map((category) => [category.name, category.color]));
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editingBook, setEditingBook] = useState<Resource | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<Category | null>(null);
+  const [categoryDeleteError, setCategoryDeleteError] = useState<string | null>(null);
 
   const categories = useMemo(() => {
     const cats = [...new Set(books.map((b) => b.category))];
@@ -39,7 +42,7 @@ export default function BooksManager() {
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
           <button
-            onClick={() => setCategoryModalOpen(true)}
+            onClick={() => { setEditingCategory(null); setCategoryModalOpen(true); }}
             className="flex items-center justify-center gap-2 px-5 py-2.5 bg-white border border-[#442F73]/20 hover:border-[#442F73] text-[#442F73] text-sm font-semibold rounded-xl transition-colors duration-200 cursor-pointer whitespace-nowrap"
           >
             <i className="ri-price-tag-3-line" />
@@ -141,6 +144,53 @@ export default function BooksManager() {
         </div>
       </div>
 
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Categories</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Manage the shelves and filters used across the library.</p>
+          </div>
+          <span className="text-xs px-2.5 py-1 rounded-full bg-[#F3E9DA] text-[#442F73] font-semibold">
+            {dbCategories.length} categories
+          </span>
+        </div>
+
+        <div className="divide-y divide-gray-50">
+          {dbCategories.map((category) => (
+            <div key={category.id} className="px-5 py-4 flex items-center justify-between gap-4 hover:bg-gray-50/60 transition-colors">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ backgroundColor: `${category.color}16`, color: category.color }}>
+                    {category.name}
+                  </span>
+                  <span className="text-xs text-gray-400">{category.resourceCount} book{category.resourceCount === 1 ? "" : "s"}</span>
+                </div>
+                <p className="text-sm text-gray-500 mt-2 line-clamp-2">
+                  {category.description || "No description added for this category yet."}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1 flex-none">
+                <button
+                  onClick={() => { setEditingCategory(category); setCategoryDeleteError(null); setCategoryModalOpen(true); }}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#442F73] hover:bg-[#F3E9DA] transition-all cursor-pointer"
+                  title="Edit category"
+                >
+                  <i className="ri-edit-line text-sm" />
+                </button>
+                <button
+                  onClick={() => { setCategoryDeleteError(null); setConfirmDeleteCategory(category); }}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+                  title="Delete category"
+                >
+                  <i className="ri-delete-bin-line text-sm" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl p-7 w-full max-w-sm shadow-xl text-center">
@@ -167,6 +217,47 @@ export default function BooksManager() {
         </div>
       )}
 
+      {confirmDeleteCategory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-7 w-full max-w-sm shadow-xl text-center">
+            <div className="w-12 h-12 mx-auto bg-rose-50 rounded-full flex items-center justify-center mb-4">
+              <i className="ri-price-tag-3-line text-rose-500 text-xl" />
+            </div>
+            <h3 className="font-bold text-gray-900 mb-1">Delete Category?</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              {confirmDeleteCategory.name} will be removed only if no books are assigned to it.
+            </p>
+            {categoryDeleteError && (
+              <div className="text-left text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 mb-4">
+                {categoryDeleteError}
+              </div>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setConfirmDeleteCategory(null); setCategoryDeleteError(null); }}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-xl cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await deleteCategory(confirmDeleteCategory.id);
+                    setConfirmDeleteCategory(null);
+                    setCategoryDeleteError(null);
+                  } catch (error) {
+                    setCategoryDeleteError(error instanceof Error ? error.message : "This category could not be deleted.");
+                  }
+                }}
+                className="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-semibold text-sm rounded-xl cursor-pointer transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modalOpen && (
         <BookFormModal
           book={editingBook}
@@ -175,7 +266,13 @@ export default function BooksManager() {
       )}
 
       {categoryModalOpen && (
-        <CategoryFormModal onClose={() => setCategoryModalOpen(false)} />
+        <CategoryFormModal
+          category={editingCategory}
+          onClose={() => {
+            setCategoryModalOpen(false);
+            setEditingCategory(null);
+          }}
+        />
       )}
     </div>
   );
