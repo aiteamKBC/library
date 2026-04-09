@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.db.models import Prefetch
 from urllib.request import Request, urlopen
+from django.utils.text import slugify
 from rest_framework import status, viewsets
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import action
@@ -58,6 +59,16 @@ class CategoryViewSet(viewsets.ModelViewSet):
         if self.action in {"list", "retrieve"}:
             return [AllowAny()]
         return [IsLibraryStaff()]
+
+    def create(self, request, *args, **kwargs):
+        payload = request.data.copy()
+        if payload.get("name") and not payload.get("slug"):
+            payload["slug"] = slugify(str(payload["name"]))
+        serializer = self.get_serializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class ResourceViewSet(viewsets.ModelViewSet):

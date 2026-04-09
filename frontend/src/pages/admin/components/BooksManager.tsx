@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
 import BookFormModal from "./BookFormModal";
+import CategoryFormModal from "./CategoryFormModal";
 import type { Resource } from "../../../types/library";
 
 export default function BooksManager() {
@@ -9,6 +10,7 @@ export default function BooksManager() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [editingBook, setEditingBook] = useState<Resource | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -35,13 +37,22 @@ export default function BooksManager() {
           <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>Books</h2>
           <p className="text-gray-400 text-sm mt-0.5">{books.length} books in the library</p>
         </div>
-        <button
-          onClick={() => { setEditingBook(null); setModalOpen(true); }}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#442F73] hover:bg-[#241453] text-white text-sm font-semibold rounded-xl transition-colors duration-200 cursor-pointer whitespace-nowrap"
-        >
-          <i className="ri-add-line" />
-          Add New Book
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={() => setCategoryModalOpen(true)}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-white border border-[#442F73]/20 hover:border-[#442F73] text-[#442F73] text-sm font-semibold rounded-xl transition-colors duration-200 cursor-pointer whitespace-nowrap"
+          >
+            <i className="ri-price-tag-3-line" />
+            Add New Category
+          </button>
+          <button
+            onClick={() => { setEditingBook(null); setModalOpen(true); }}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#442F73] hover:bg-[#241453] text-white text-sm font-semibold rounded-xl transition-colors duration-200 cursor-pointer whitespace-nowrap"
+          >
+            <i className="ri-add-line" />
+            Add New Book
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-col sm:flex-row gap-3">
@@ -161,6 +172,10 @@ export default function BooksManager() {
           book={editingBook}
           onClose={() => { setModalOpen(false); setEditingBook(null); }}
         />
+      )}
+
+      {categoryModalOpen && (
+        <CategoryFormModal onClose={() => setCategoryModalOpen(false)} />
       )}
     </div>
   );

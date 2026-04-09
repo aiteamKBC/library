@@ -133,6 +133,15 @@ export const api = {
     }
   },
   listCategories: () => request<Category[]>("/categories/"),
+  createCategory: async (payload: Pick<Category, "name"> & Partial<Pick<Category, "description" | "color" | "icon" | "slug">>) => {
+    const created = await request<Category>("/categories/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    invalidateCache("/categories/");
+    invalidateCache("/resources/");
+    return created;
+  },
   listResources: () => request<Resource[]>("/resources/"),
   createResource: async (payload: Omit<Resource, "id">) => {
     const created = await request<Resource>("/resources/", {
