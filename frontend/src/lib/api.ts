@@ -226,6 +226,15 @@ export const api = {
     invalidateCache("/resources/");
     return updated;
   },
+  approveLoan: async (id: string) => {
+    const approved = await request<Loan>(`/loans/${id}/approve/`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    invalidateCache("/loans/");
+    invalidateCache("/resources/");
+    return approved;
+  },
   deleteLoan: async (id: string) => {
     await request<void>(`/loans/${id}/`, {
       method: "DELETE",

@@ -51,9 +51,13 @@ def env_list(name: str, default: list[str]) -> list[str]:
 def database_config() -> dict[str, object]:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
+        # Allow overriding the DB path via env var so the file can live
+        # outside OneDrive/Dropbox sync folders (sync hooks add ~700 ms
+        # of overhead to every SQLite read on Windows).
+        db_path = os.getenv("SQLITE_DB_PATH") or str(BASE_DIR / "db.sqlite3")
         return {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            "NAME": db_path,
         }
 
     parsed = urlparse(database_url)
@@ -163,7 +167,7 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "KBC Library <library@kbc.a
 SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
 N8N_LIBRARY_WEBHOOK_URL = os.getenv(
     "N8N_LIBRARY_WEBHOOK_URL",
-    "https://n8n.srv943390.hstgr.cloud/webhook-test/ed835591-9558-407f-bd11-6a6c3e6bfe5",
+    "https://n8n.srv943390.hstgr.cloud/webhook/library",
 )
 
 REST_FRAMEWORK = {

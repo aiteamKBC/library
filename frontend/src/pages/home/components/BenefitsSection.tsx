@@ -28,7 +28,7 @@ export default function BenefitsSection() {
             <div className="flex flex-col sm:flex-row gap-3 flex-none">
               <Link
                 to="/resources"
-                className="flex items-center justify-center gap-2 px-8 py-3.5 bg-[#CEA869] hover:bg-[#B27715] text-[#241453] font-bold text-sm rounded-full transition-all duration-200 cursor-pointer whitespace-nowrap"
+                className="flex items-center justify-center gap-2 px-8 py-3.5 bg-[#CEA869] hover:bg-[#B27715] text-[#182430] font-bold text-sm rounded-full transition-all duration-200 cursor-pointer whitespace-nowrap"
               >
                 <i className="ri-book-open-line" />
                 Browse Books

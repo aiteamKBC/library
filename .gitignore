@@ -53,6 +53,7 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+.claude/
 
 # Local workflow/config exports that may contain instance-specific data
 backend/n8n.json

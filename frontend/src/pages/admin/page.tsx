@@ -5,6 +5,7 @@ import { api } from "../../lib/api";
 import StatsOverview from "./components/StatsOverview";
 import BooksManager from "./components/BooksManager";
 import LoansManager from "./components/LoansManager";
+import CirculationHistory from "./components/CirculationHistoryManager";
 import RequestsInbox from "./components/RequestsInbox";
 import SupportInbox from "./components/SupportInbox";
 
@@ -12,7 +13,8 @@ const NAV = [
   { id: "overview", label: "Overview", icon: "ri-dashboard-3-line" },
   { id: "books", label: "Books & Resources", icon: "ri-book-shelf-line" },
   { id: "loans", label: "Loans & Reservations", icon: "ri-bookmark-3-line" },
-  { id: "requests", label: "Student Requests", icon: "ri-inbox-line", badge: true },
+  { id: "history", label: "History", icon: "ri-history-line" },
+  { id: "requests", label: "New Book Requests", icon: "ri-inbox-line", badge: true },
   { id: "support", label: "Support Inbox", icon: "ri-mail-unread-line", badge: true },
 ];
 
@@ -37,7 +39,7 @@ export default function AdminPage() {
       try {
         const session = await api.getAuthMe();
         if (!["admin", "librarian"].includes(session.user.role)) {
-          throw new Error("Not an admin account");
+          throw new Error("Not a library admin account");
         }
         if (!cancelled) {
           setAuthed(true);
@@ -81,7 +83,7 @@ export default function AdminPage() {
     setAuthed(false);
   };
 
-  const adminContent = adminLoading && (tab === "loans" || tab === "requests")
+  const adminContent = adminLoading && (tab === "loans" || tab === "history" || tab === "requests")
     ? (
       <div className="max-w-5xl space-y-6">
         <div>
@@ -106,6 +108,7 @@ export default function AdminPage() {
         {tab === "overview" && <StatsOverview onNavigate={setTab} />}
         {tab === "books" && <BooksManager />}
         {tab === "loans" && <LoansManager />}
+        {tab === "history" && <CirculationHistory />}
         {tab === "requests" && <RequestsInbox />}
         {tab === "support" && <SupportInbox />}
       </>
@@ -116,7 +119,7 @@ export default function AdminPage() {
       <div className="min-h-screen bg-[#F9F4EC] flex items-center justify-center p-4">
         <div className="flex items-center gap-3 rounded-full border border-[#E9D9BD] bg-white px-5 py-3 shadow-sm">
           <div className="h-2.5 w-2.5 rounded-full bg-[#442F73] animate-pulse" />
-          <p className="text-sm font-medium text-[#241453]">Checking admin session...</p>
+            <p className="text-sm font-medium text-[#241453]">Checking library admin session...</p>
         </div>
       </div>
     );
@@ -131,7 +134,7 @@ export default function AdminPage() {
               <i className="ri-shield-keyhole-line text-white text-2xl" />
             </div>
             <h1 className="text-2xl font-bold text-[#241453]" style={{ fontFamily: "'Playfair Display', serif" }}>
-              Admin Portal
+              Library Admin Portal
             </h1>
             <p className="text-gray-400 text-sm mt-1">KBC Digital Library</p>
           </div>
@@ -146,7 +149,7 @@ export default function AdminPage() {
                     type="text"
                     value={identifier}
                     onChange={(e) => { setIdentifier(e.target.value); setError(""); }}
-                    placeholder="admin or admin@kbc.local"
+                    placeholder="Use your library admin email"
                     className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
                   />
                 </div>
@@ -159,7 +162,7 @@ export default function AdminPage() {
                     type="password"
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                    placeholder="Enter admin password"
+                    placeholder="Enter your library admin password"
                     className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
                   />
                 </div>
@@ -173,7 +176,7 @@ export default function AdminPage() {
                 type="submit"
                 className="w-full py-3 bg-[#442F73] hover:bg-[#241453] text-white font-semibold text-sm rounded-xl transition-colors duration-200 cursor-pointer"
               >
-                Sign In to Admin
+                Sign In to Library Admin
               </button>
             </form>
 
@@ -204,7 +207,7 @@ export default function AdminPage() {
           </div>
           <div>
             <p className="text-white font-bold text-sm" style={{ fontFamily: "'Playfair Display', serif" }}>KBC Library</p>
-            <p className="text-white/40 text-[10px]">Admin Dashboard</p>
+            <p className="text-white/40 text-[10px]">Library Admin Dashboard</p>
           </div>
         </div>
 
@@ -238,13 +241,6 @@ export default function AdminPage() {
 
         {/* Bottom */}
         <div className="px-3 py-4 border-t border-white/8 space-y-1">
-          <Link
-            to="/"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 hover:text-white/70 hover:bg-white/6 transition-all cursor-pointer"
-          >
-            <i className="ri-external-link-line" />
-            View Library Site
-          </Link>
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 hover:text-rose-300 hover:bg-white/6 transition-all cursor-pointer"
@@ -277,7 +273,7 @@ export default function AdminPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             {pendingCount > 0 && (
               <button
                 onClick={() => setTab("requests")}
@@ -305,6 +301,13 @@ export default function AdminPage() {
                 {activeLoanCount} active circulation
               </button>
             )}
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm transition-all duration-200 hover:border-violet-300 hover:bg-violet-100 hover:text-violet-800 whitespace-nowrap"
+            >
+              <i className="ri-external-link-line text-sm" />
+              <span className="hidden sm:inline">View Library Site</span>
+            </Link>
             <div className="w-8 h-8 rounded-full bg-[#442F73] flex items-center justify-center">
               <i className="ri-user-line text-white text-xs" />
             </div>

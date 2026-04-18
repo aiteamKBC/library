@@ -10,12 +10,12 @@ export default function StatsOverview({ onNavigate }: Props) {
   const categories = [...new Set(books.map((book) => book.category))];
   const authors = [...new Set(books.map((book) => book.author))];
   const uncategorisedCount = books.filter((book) => !book.categoryId || !book.category).length;
-  const activeLoansCount = loans.filter((loan) => ["borrowed", "reserved", "overdue"].includes(loan.status)).length;
+  const activeLoansCount = loans.filter((loan) => ["requested", "borrowed", "reserved", "overdue"].includes(loan.status)).length;
   const openSupportCount = supportMessages.filter((message) => message.status !== "resolved").length;
 
   const statCards = [
     { label: "Total Books", value: books.length, icon: "ri-book-3-line", color: "#442F73", bg: "#442F73" },
-    { label: "Categories", value: categories.length, icon: "ri-grid-2-line", color: "#B27715", bg: "#B27715" },
+    { label: "Categories", value: categories.length, icon: "ri-layout-grid-line", color: "#B27715", bg: "#B27715" },
     { label: "Active Loans", value: activeLoansCount, icon: "ri-bookmark-3-line", color: "#9D2B2B", bg: "#9D2B2B" },
     { label: "Open Support", value: openSupportCount, icon: "ri-mail-unread-line", color: "#2D6A4F", bg: "#2D6A4F" },
   ];

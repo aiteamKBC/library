@@ -11,14 +11,14 @@ export default function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="bg-[#241453] text-white">
+    <footer className="bg-[#241453] text-white" >
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-12 md:py-14">
         <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-10 md:gap-12">
           <div>
             <div className="flex items-center gap-3 mb-4">
               <img
-                src="https://static.readdy.ai/image/d84279027d7bca7939cd7344401a26dd/977c3f5b67a0fef19fdcca03706b2bc2.webp"
-                alt="KBC Library"
+                src="/assets/kbc-logo.webp"
+                alt="Kent Business College logo"
                 className="w-11 h-11 object-contain"
               />
               <div>

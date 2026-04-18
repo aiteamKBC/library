@@ -26,8 +26,21 @@ export default function HeroSection() {
           alt="KBC Library Interior"
           className="w-full h-full object-cover object-top"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#1a0d3d]/95 via-[#241453]/88 to-[#3d1f6e]/60" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#1a0d3d]/50" />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(1,2,3,0.9) 0%, rgba(5,7,10,0.82) 30%, rgba(14,10,8,0.58) 62%, rgba(18,12,9,0.32) 100%)",
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/16 via-black/12 to-black/46" />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(circle at 86% 26%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.16) 24%, transparent 48%)",
+          }}
+        />
         <div className="absolute inset-0 opacity-5" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }} />
       </div>
 
@@ -35,7 +48,7 @@ export default function HeroSection() {
         <div className="max-w-3xl">
           <div className="inline-flex items-center gap-2.5 px-4 py-2 bg-white/8 backdrop-blur-md border border-white/15 rounded-full mb-7">
             <div className="w-5 h-5 rounded-full bg-[#CEA869] flex items-center justify-center flex-none">
-              <i className="ri-building-2-line text-[10px] text-[#241453]" />
+              <i className="ri-building-2-line text-[10px] text-[#203042]" />
             </div>
             <span className="text-white/85 text-xs font-medium tracking-wide">Kent Business College Library</span>
           </div>
@@ -44,7 +57,7 @@ export default function HeroSection() {
             className="text-5xl sm:text-6xl lg:text-[68px] font-bold text-white leading-[1.08] mb-5 tracking-tight"
             style={{ fontFamily: "'Playfair Display', serif" }}
           >
-            Your Academic<br />
+            Your 
             <span className="relative inline-block">
               <span className="text-[#CEA869]">Library</span>
               <svg className="absolute -bottom-2 left-0 w-full" height="6" viewBox="0 0 240 6" fill="none" preserveAspectRatio="none">
@@ -53,10 +66,6 @@ export default function HeroSection() {
             </span>
             {" "}&amp; Resource Hub
           </h1>
-
-          <p className="text-white/78 text-base md:text-lg leading-relaxed mb-9 max-w-xl font-light [text-shadow:0_1px_10px_rgba(20,10,45,0.35)]">
-            Browse the real books currently listed in the KBC library collection.
-          </p>
 
           <form onSubmit={handleSearch} className="mb-8 max-w-2xl">
             <div className="relative">
@@ -73,7 +82,7 @@ export default function HeroSection() {
               />
               <button
                 type="submit"
-                className="flex items-center gap-2 px-5 py-2.5 bg-[#442F73] hover:bg-[#241453] text-white text-sm font-semibold rounded-xl transition-colors duration-200 cursor-pointer whitespace-nowrap"
+                className="flex items-center gap-2 px-5 py-2.5 bg-[#131a22] hover:bg-[#0d1218] text-white text-sm font-semibold rounded-xl transition-colors duration-200 cursor-pointer whitespace-nowrap"
               >
                 <span className="hidden sm:inline">Search</span>
                 <i className="ri-arrow-right-line" />
@@ -90,17 +99,17 @@ export default function HeroSection() {
                       className="w-full flex items-start justify-between gap-3 px-4 py-3 text-left hover:bg-[#F9F4EC] transition-colors cursor-pointer border-b border-[#F3E9DA] last:border-b-0"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[#241453] truncate">{book.title}</p>
+                        <p className="text-sm font-semibold text-[#203042] truncate">{book.title}</p>
                         <p className="text-xs text-gray-500 truncate">by {book.author}</p>
                       </div>
-                      <span className="flex-none text-[10px] font-semibold text-[#442F73] bg-[#F3E9DA] px-2 py-1 rounded-full">
+                      <span className="flex-none text-[10px] font-semibold text-[#2C3A4B] bg-[#F3E9DA] px-2 py-1 rounded-full">
                         {book.category}
                       </span>
                     </button>
                   ))}
                   <button
                     type="submit"
-                    className="w-full px-4 py-3 bg-[#F9F4EC] text-[#442F73] text-sm font-semibold hover:bg-[#F3E9DA] transition-colors cursor-pointer"
+                    className="w-full px-4 py-3 bg-[#F9F4EC] text-[#2C3A4B] text-sm font-semibold hover:bg-[#F3E9DA] transition-colors cursor-pointer"
                   >
                     View all results for "{searchQuery.trim()}"
                   </button>
@@ -118,7 +127,7 @@ export default function HeroSection() {
           <div className="flex flex-wrap items-center gap-3">
             <Link
               to="/resources"
-              className="flex items-center gap-2 px-7 py-3.5 bg-[#CEA869] hover:bg-[#B27715] text-[#241453] font-bold text-sm rounded-full transition-all duration-200 cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-2 px-7 py-3.5 bg-[#CEA869] hover:bg-[#B27715] text-[#182430] font-bold text-sm rounded-full transition-all duration-200 cursor-pointer whitespace-nowrap"
             >
               <i className="ri-book-open-line" />
               Browse Books

@@ -168,13 +168,12 @@ class Resource(models.Model):
     @property
     def availability_note(self) -> str:
         if self.availability_status == BookCopy.CopyStatus.BORROWED:
-            if self.expected_available_date:
-                return f"Expected back on {self.expected_available_date.isoformat()}"
-            return "This book is currently borrowed. Return date is not available yet."
+            # expected_available_date is surfaced separately in the UI — do not repeat it here.
+            return "Currently on loan. Leave your details below and we'll notify you when it's available."
         if self.availability_status == BookCopy.CopyStatus.RESERVED:
-            return "This book is reserved for the next student in line."
+            return "This book is currently reserved for another member. Register below and we will let you know when it is free."
         if self.availability_status == BookCopy.CopyStatus.AVAILABLE:
-            return "This book can be borrowed right now."
+            return ""
         return "Please contact the library team for availability updates."
 
 
@@ -214,8 +213,13 @@ class Loan(models.Model):
         APPROVED = "approved", "Approved"
         BORROWED = "borrowed", "Borrowed"
         RETURNED = "returned", "Returned"
+        NOTIFY = "notify", "Notify"
         OVERDUE = "overdue", "Overdue"
         CANCELLED = "cancelled", "Cancelled"
+
+    class LoanType(models.TextChoices):
+        BORROW = "borrow", "Borrow Request"
+        NOTIFY = "notify", "Notification Registration"
 
     id = models.CharField(primary_key=True, max_length=50)
     borrower = models.ForeignKey(
@@ -231,7 +235,9 @@ class Loan(models.Model):
     borrower_student_id = models.CharField(max_length=40, blank=True)
     book_copy = models.ForeignKey(BookCopy, on_delete=models.PROTECT, related_name="loans")
     status = models.CharField(max_length=20, choices=LoanStatus.choices, default=LoanStatus.REQUESTED)
+    loan_type = models.CharField(max_length=10, choices=LoanType.choices, default=LoanType.BORROW)
     requested_at = models.DateTimeField(default=timezone.now)
+    requested_from = models.DateField(blank=True, null=True)
     approved_at = models.DateTimeField(blank=True, null=True)
     borrowed_at = models.DateTimeField(blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
@@ -264,16 +270,21 @@ class Loan(models.Model):
     @classmethod
     def circulation_statuses(cls) -> tuple[str, ...]:
         return (
-            cls.LoanStatus.REQUESTED,
-            cls.LoanStatus.APPROVED,
             cls.LoanStatus.BORROWED,
             cls.LoanStatus.OVERDUE,
+        )
+
+    @classmethod
+    def pre_checkout_statuses(cls) -> tuple[str, ...]:
+        return (
+            cls.LoanStatus.APPROVED,
         )
 
     @classmethod
     def terminal_statuses(cls) -> tuple[str, ...]:
         return (
             cls.LoanStatus.RETURNED,
+            cls.LoanStatus.NOTIFY,
             cls.LoanStatus.CANCELLED,
         )
 
@@ -283,6 +294,7 @@ class Loan(models.Model):
             cls.LoanStatus.REQUESTED: {
                 cls.LoanStatus.APPROVED,
                 cls.LoanStatus.BORROWED,
+                cls.LoanStatus.NOTIFY,
                 cls.LoanStatus.CANCELLED,
             },
             cls.LoanStatus.APPROVED: {
@@ -301,6 +313,7 @@ class Loan(models.Model):
                 cls.LoanStatus.RETURNED,
             },
             cls.LoanStatus.RETURNED: set(),
+            cls.LoanStatus.NOTIFY: set(),
             cls.LoanStatus.CANCELLED: set(),
         }
 
@@ -343,10 +356,18 @@ class Loan(models.Model):
         if self.status == self.LoanStatus.RESERVED:
             if conflicting.filter(status=self.LoanStatus.RESERVED).exists():
                 raise ValidationError({"book_copy": "This copy already has an active reservation."})
+            if conflicting.filter(status__in=self.pre_checkout_statuses()).exists():
+                raise ValidationError({"book_copy": "This copy is already being prepared for another borrower."})
+        elif self.status == self.LoanStatus.REQUESTED:
+            # Keep the waiting-list behaviour simple: multiple students can
+            # submit borrow requests for the same resource and the librarian
+            # later confirms one of them. We only block duplicate requests from
+            # the same borrower (handled above).
+            return
         else:
             if conflicting.filter(status=self.LoanStatus.RESERVED).exists():
                 raise ValidationError({"book_copy": "This copy is reserved for another student."})
-            if conflicting.filter(status__in=self.circulation_statuses()).exists():
+            if conflicting.filter(status__in=(*self.pre_checkout_statuses(), *self.circulation_statuses())).exists():
                 raise ValidationError({"book_copy": "This copy already has an active borrowing flow."})
 
     def save(self, *args, **kwargs):
@@ -359,7 +380,7 @@ class Loan(models.Model):
         active_loans = Loan.objects.filter(book_copy=book_copy, status__in=Loan.active_statuses())
         if active_loans.filter(status__in=Loan.circulation_statuses()).exists():
             return BookCopy.CopyStatus.BORROWED
-        if active_loans.filter(status=Loan.LoanStatus.RESERVED).exists():
+        if active_loans.filter(status__in=(Loan.LoanStatus.APPROVED, Loan.LoanStatus.RESERVED)).exists():
             return BookCopy.CopyStatus.RESERVED
         return BookCopy.CopyStatus.AVAILABLE
 

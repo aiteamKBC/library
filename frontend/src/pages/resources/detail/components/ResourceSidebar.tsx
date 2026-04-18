@@ -23,12 +23,12 @@ export default function ResourceSidebar({ resource, onRequestBook }: Props) {
     borrowed: {
       badge: "bg-amber-500/15 text-amber-100 border border-amber-300/20",
       panel: "bg-amber-500/10 border border-amber-300/15",
-      text: "The only copy is currently borrowed, so the next student should reserve it.",
+      text: "Currently on loan. Leave your details and we'll notify you when it's back.",
     },
     reserved: {
       badge: "bg-sky-500/15 text-sky-100 border border-sky-300/20",
       panel: "bg-sky-500/10 border border-sky-300/15",
-      text: "The only copy is already reserved and not available for a new loan right now.",
+      text: "This copy is already reserved for another member. Register below and we will email you at the address you provide once it becomes free.",
     },
     maintenance: {
       badge: "bg-gray-500/15 text-gray-100 border border-gray-300/20",
@@ -43,12 +43,18 @@ export default function ResourceSidebar({ resource, onRequestBook }: Props) {
   };
   const availability = resource.availabilityStatus ?? "lost";
   const availabilityStyle = availabilityStyles[availability] ?? availabilityStyles.lost;
-  const primaryActionLabel = resource.canBorrow
+
+  // Available → borrow directly.  Borrowed or reserved → notify-me form.
+  const notifyStatuses = ["borrowed", "reserved"];
+  const canBorrow = availability === "available";
+  const canNotify = notifyStatuses.includes(availability);
+  const canRequest = canBorrow || canNotify;
+  const primaryActionLabel = canBorrow
     ? "Borrow This Book"
-    : resource.canReserve
-      ? "Reserve This Book"
-      : "Unavailable Right Now";
-  const primaryActionDisabled = !resource.canBorrow && !resource.canReserve;
+    : canNotify
+      ? "Notify Me When Available"
+      : "Unavailable";
+  const primaryActionDisabled = !canRequest;
   return (
     <div className="space-y-5 sticky top-24">
       <div className="bg-[#241453] rounded-2xl p-5">
@@ -60,11 +66,6 @@ export default function ResourceSidebar({ resource, onRequestBook }: Props) {
             {resource.availabilityLabel ?? "Unavailable"}
           </div>
           <p className="mt-2 text-xs leading-5 text-white/75">{availabilityStyle.text}</p>
-          {resource.availabilityNote && (
-            <p className="mt-2 text-xs leading-5 text-[#F9F4EC]">
-              {resource.availabilityNote}
-            </p>
-          )}
           {expectedAvailableText && resource.availabilityStatus === "borrowed" && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white/90">
               <i className="ri-calendar-event-line text-[#CEA869]" />
@@ -82,7 +83,7 @@ export default function ResourceSidebar({ resource, onRequestBook }: Props) {
                 : "bg-[#CEA869] hover:bg-[#B27715] text-[#241453] font-bold cursor-pointer"
             }`}
           >
-            <i className={resource.canBorrow ? "ri-book-open-line" : "ri-bookmark-line"} />
+            <i className={canBorrow ? "ri-book-open-line" : canNotify ? "ri-notification-3-line" : "ri-close-circle-line"} />
             {primaryActionLabel}
           </button>
           <Link

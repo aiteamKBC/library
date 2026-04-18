@@ -63,9 +63,9 @@ export default function RequestsInbox() {
     <div className="max-w-4xl space-y-6">
       <div>
         <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
-          Student Requests
+          New Book Requests
         </h2>
-        <p className="text-gray-400 text-sm mt-0.5">Review and manage general library requests from students.</p>
+        <p className="text-gray-400 text-sm mt-0.5">Review and manage requests for titles not yet available in the library collection.</p>
       </div>
 
       <div className="flex gap-2 flex-wrap">
@@ -271,7 +271,7 @@ export default function RequestsInbox() {
               <i className="ri-inbox-2-line text-gray-300 text-2xl" />
             </div>
             <p className="text-gray-500 font-medium mb-1">No requests found</p>
-            <p className="text-gray-400 text-sm">Requests from students will appear here.</p>
+            <p className="text-gray-400 text-sm">New book requests will appear here.</p>
           </div>
         )}
       </div>

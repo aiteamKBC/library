@@ -259,7 +259,7 @@ export default function ResourceDetailPage() {
           initialCategory={resource.category}
           expectedAvailableDate={resource.expectedAvailableDate}
           availabilityNote={resource.availabilityNote}
-          mode={resource.canBorrow ? "borrow" : resource.canReserve ? "reserve" : "request"}
+          mode={resource.availabilityStatus === "available" ? "borrow" : "notify"}
         />
       )}
 

@@ -3,12 +3,14 @@ import { AppRoutes } from "./router";
 import { I18nextProvider } from "react-i18next";
 import i18n from "./i18n";
 import { AdminDataProvider } from "./hooks/useAdminData";
+import ScrollToTop from "./components/ScrollToTop";
 
 function App() {
   return (
     <I18nextProvider i18n={i18n}>
       <AdminDataProvider>
         <BrowserRouter basename={__BASE_PATH__}>
+          <ScrollToTop />
           <AppRoutes />
         </BrowserRouter>
       </AdminDataProvider>

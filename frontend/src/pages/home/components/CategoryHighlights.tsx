@@ -15,12 +15,12 @@ export default function CategoryHighlights() {
       <div className="max-w-7xl mx-auto px-4 md:px-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-5 mb-10">
           <div>
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-[#442F73]/10 border border-[#442F73]/15 rounded-full mb-4">
-              <i className="ri-layout-grid-fill text-[#442F73] text-xs" />
-              <span className="text-[#442F73] text-xs font-semibold tracking-widest uppercase">Browse by Category</span>
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-[#2C3A4B]/10 border border-[#2C3A4B]/15 rounded-full mb-4">
+              <i className="ri-layout-grid-fill text-[#2C3A4B] text-xs" />
+              <span className="text-[#2C3A4B] text-xs font-semibold tracking-widest uppercase">Browse by Category</span>
             </div>
             <h2
-              className="text-3xl md:text-4xl font-bold text-[#241453] leading-tight"
+              className="text-3xl md:text-4xl font-bold text-[#203042] leading-tight"
               style={{ fontFamily: "'Playfair Display', serif" }}
             >
               Explore the Library
@@ -29,7 +29,7 @@ export default function CategoryHighlights() {
 
           <Link
             to="/categories"
-            className="flex-none flex items-center gap-2 px-5 py-2.5 border border-[#442F73]/25 text-[#442F73] hover:bg-[#442F73] hover:text-white text-sm font-semibold rounded-full transition-all duration-200 cursor-pointer whitespace-nowrap"
+            className="flex-none flex items-center gap-2 px-5 py-2.5 border border-[#2C3A4B]/25 text-[#2C3A4B] hover:bg-[#2C3A4B] hover:text-white text-sm font-semibold rounded-full transition-all duration-200 cursor-pointer whitespace-nowrap"
           >
             All Categories
             <i className="ri-arrow-right-line" />
@@ -55,7 +55,7 @@ export default function CategoryHighlights() {
             <Link
               key={cat.id}
               to={`/resources?category=${encodeURIComponent(cat.name)}`}
-              className="group bg-white rounded-2xl border border-[#E9D9BD] hover:border-[#442F73]/20 hover:shadow-lg transition-all duration-300 cursor-pointer block p-5"
+              className="group bg-white rounded-2xl border border-[#E9D9BD] hover:border-[#2C3A4B]/20 hover:shadow-lg transition-all duration-300 cursor-pointer block p-5"
             >
               <div className="flex items-center justify-between mb-4">
                 <div
@@ -72,7 +72,7 @@ export default function CategoryHighlights() {
                 </span>
               </div>
 
-              <h3 className="font-bold text-[#241453] text-base leading-tight group-hover:text-[#442F73] transition-colors duration-200">
+              <h3 className="font-bold text-[#203042] text-base leading-tight group-hover:text-[#2C3A4B] transition-colors duration-200">
                 {cat.name}
               </h3>
 

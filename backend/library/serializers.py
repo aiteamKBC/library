@@ -7,7 +7,7 @@ from .models import BookCopy, BookRequest, Category, Loan, Resource, SupportMess
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    resourceCount = serializers.IntegerField(source="resources.count", read_only=True)
+    resourceCount = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Category
@@ -93,8 +93,9 @@ class LoanSerializer(serializers.ModelSerializer):
     borrowerStudentId = serializers.CharField(source="borrower_student_id", allow_blank=True, required=False)
     approvedById = serializers.IntegerField(source="approved_by_id", allow_null=True, required=False)
     bookCopyId = serializers.IntegerField(source="book_copy_id", required=False)
-    resourceId = serializers.CharField(write_only=True, required=False)
-    requestedFrom = serializers.DateField(write_only=True, required=False)
+    resourceId = serializers.CharField(source="book_copy.resource_id", read_only=True)
+    requestedFrom = serializers.DateField(source="requested_from", allow_null=True, required=False)
+    loanType = serializers.CharField(source="loan_type", required=False)
     bookTitle = serializers.CharField(source="book_copy.resource.title", read_only=True)
     accessionNumber = serializers.CharField(source="book_copy.accession_number", read_only=True)
     availabilityStatus = serializers.CharField(source="book_copy.status", read_only=True)
@@ -117,6 +118,7 @@ class LoanSerializer(serializers.ModelSerializer):
             "bookCopyId",
             "resourceId",
             "requestedFrom",
+            "loanType",
             "bookTitle",
             "accessionNumber",
             "availabilityStatus",
@@ -144,7 +146,7 @@ class LoanSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A phone number is required for borrowing and reservation requests.")
 
         next_status = attrs.get("status", getattr(self.instance, "status", Loan.LoanStatus.REQUESTED))
-        requested_from = attrs.get("requestedFrom")
+        requested_from = attrs.get("requested_from")
         book_copy = None
 
         book_copy_id = attrs.get("book_copy_id")
@@ -163,7 +165,6 @@ class LoanSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop("resourceId", None)
-        validated_data.pop("requestedFrom", None)
         try:
             return super().create(validated_data)
         except DjangoValidationError as exc:
@@ -171,7 +172,6 @@ class LoanSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         validated_data.pop("resourceId", None)
-        validated_data.pop("requestedFrom", None)
         try:
             return super().update(instance, validated_data)
         except DjangoValidationError as exc:

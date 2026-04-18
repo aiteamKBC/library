@@ -77,12 +77,13 @@ export interface Loan {
   borrowerStudentId?: string;
   approvedById?: number | null;
   bookCopyId?: number;
-  resourceId?: string;
-  requestedFrom?: string;
+  resourceId?: string;    // read-only: book_copy.resource_id
+  requestedFrom?: string | null;
+  loanType?: "borrow" | "notify";
   bookTitle: string;
   accessionNumber: string;
   availabilityStatus?: "available" | "reserved" | "borrowed" | "lost" | "maintenance";
-  status: "requested" | "reserved" | "approved" | "borrowed" | "returned" | "overdue" | "cancelled";
+  status: "requested" | "reserved" | "approved" | "borrowed" | "returned" | "notify" | "overdue" | "cancelled";
   requestedAt: string;
   approvedAt?: string | null;
   borrowedAt?: string | null;

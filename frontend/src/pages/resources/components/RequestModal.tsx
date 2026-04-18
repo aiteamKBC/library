@@ -8,7 +8,7 @@ interface Props {
   initialCategory?: string;
   expectedAvailableDate?: string | null;
   availabilityNote?: string;
-  mode?: "request" | "borrow" | "reserve";
+  mode?: "request" | "borrow" | "notify";
 }
 
 export default function RequestModal({
@@ -22,6 +22,7 @@ export default function RequestModal({
 }: Props) {
   const { addRequest, addLoan, categories } = useAdminData();
   const [requestMode] = useState(mode);
+  const today = new Date().toISOString().split("T")[0];
   const categoryNames = categories.map((category) => category.name);
   const defaultCategory = categoryNames[0] ?? "";
   const [form, setForm] = useState({
@@ -38,6 +39,7 @@ export default function RequestModal({
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
+
   const copy = {
     request: {
       title: "Request a New Book",
@@ -53,29 +55,30 @@ export default function RequestModal({
     },
     borrow: {
       title: "Borrow This Book",
-      subtitle: "This title is available now. Send your request and the library team can confirm checkout.",
+      subtitle: "Complete the form and a member of the library team will contact you.",
       button: "Submit Borrow Request",
       successTitle: "Borrow Request Received",
-      successText: "Your request to borrow this book is now pending library confirmation. We will contact you once your checkout is approved.",
-      successSubtitle: "This book is available now and your borrow request has been sent for review.",
+      successText: "Your request is now with the library team. A confirmation message will be sent to the email address you provided, and we will follow up once a copy is confirmed for you.",
+      successSubtitle: "Check your email for a confirmation shortly.",
       successBadge: "BORROW REQUEST",
       successBadgeClass: "bg-[#E8F7EF] text-[#127A49]",
       successIconClass: "ri-book-open-line text-[#127A49]",
       successIconWrapClass: "bg-emerald-50",
     },
-    reserve: {
-      title: "Reserve This Book",
-      subtitle: "This title is currently unavailable. Join the queue and the library team will contact you.",
-      button: "Submit Reservation",
-      successTitle: "Added to Reservation Queue",
-      successText: "You have been added to the waiting list for this book. We will contact you as soon as a copy becomes available.",
-      successSubtitle: "This title is currently unavailable, so your reservation has been placed in the queue.",
-      successBadge: "RESERVATION REQUEST",
+    notify: {
+      title: "Notify Me When Available",
+      subtitle: "This book is currently unavailable. Leave your details and we will send a notification to the email address you provide as soon as a copy is free.",
+      button: "Register for Notification",
+      successTitle: "You're on the List",
+      successText: "You will receive an email notification at the address you provided as soon as this book becomes available. No further action is needed from your side.",
+      successSubtitle: "Keep an eye on your inbox.",
+      successBadge: "AVAILABILITY ALERT",
       successBadgeClass: "bg-[#EEF3FF] text-[#3154A3]",
-      successIconClass: "ri-bookmark-line text-[#3154A3]",
+      successIconClass: "ri-notification-3-line text-[#3154A3]",
       successIconWrapClass: "bg-[#EEF3FF]",
     },
   }[requestMode];
+
   const expectedDateLabel = expectedAvailableDate
     ? new Date(expectedAvailableDate).toLocaleDateString("en-GB", {
       day: "numeric",
@@ -83,6 +86,7 @@ export default function RequestModal({
       year: "numeric",
     })
     : null;
+
   const humanizeField = (key: string) => {
     const labels: Record<string, string> = {
       borrowerEmail: "email address",
@@ -145,10 +149,7 @@ export default function RequestModal({
       return "This copy is already reserved for another student. Please try a different book or contact the librarian.";
     }
     if (trimmedMessage.includes("not currently available to borrow")) {
-      return "This book is no longer available to borrow right now. Please refresh the page and try reserving it instead.";
-    }
-    if (trimmedMessage.includes("Only borrowed books can be reserved")) {
-      return "This book is not in a borrowed state right now, so a reservation cannot be placed.";
+      return "This book is not available right now. Please try again later or contact the library team.";
     }
     if (trimmedMessage.includes("Borrower details are required")) {
       return "Please enter your name and email before submitting.";
@@ -159,22 +160,12 @@ export default function RequestModal({
     if (trimmedMessage.includes("cannot start before")) {
       return trimmedMessage;
     }
-    if (trimmedMessage.includes("KBC account sign-in")) {
-      return "Please complete the required details before submitting this request.";
-    }
-    if (trimmedMessage.includes("verified student sign-in")) {
-      return "Please complete the required details before continuing.";
-    }
-    if (trimmedMessage.includes("verify your student email")) {
-      return "Please complete the required details before continuing.";
-    }
     return trimmedMessage;
   };
 
-  const minNeededFrom = requestMode === "reserve" && expectedAvailableDate
-    ? expectedAvailableDate
-    : undefined;
   const isGeneralRequest = requestMode === "request";
+  const showDates = requestMode === "borrow";
+
   const isValidUkPhone = (value: string) => {
     const normalized = value.replace(/[\s()-]/g, "");
     return /^(?:\+44|0)7\d{9}$/.test(normalized) || /^(?:\+44|0)(?:1|2)\d{8,9}$/.test(normalized);
@@ -182,9 +173,7 @@ export default function RequestModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) {
-      return;
-    }
+    if (submitting) return;
     setSubmitError("");
     if (form.studentName.includes("@")) {
       setSubmitError("Please enter your full name in the name field.");
@@ -211,9 +200,11 @@ export default function RequestModal({
           borrowerEmail: form.studentEmail,
           borrowerPhone: form.studentPhone,
           resourceId: initialResourceId,
-          requestedFrom: form.neededFrom || undefined,
-          status: requestMode === "borrow" ? "borrowed" : "reserved",
-          dueDate: form.neededUntil || undefined,
+          status: "requested",
+          loanType: requestMode === "notify" ? "notify" : "borrow",
+          // Only include dates for the borrow mode; notify mode is a pure availability alert.
+          requestedFrom: showDates ? (form.neededFrom || undefined) : undefined,
+          dueDate: showDates ? (form.neededUntil || undefined) : undefined,
           notes: form.reason || undefined,
         });
       }
@@ -227,9 +218,7 @@ export default function RequestModal({
   };
 
   const handleDone = () => {
-    if (closing) {
-      return;
-    }
+    if (closing) return;
     setClosing(true);
     window.setTimeout(() => {
       onClose();
@@ -260,15 +249,37 @@ export default function RequestModal({
             </div>
           </div>
         )}
+
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="font-bold text-[#241453] text-lg" style={{ fontFamily: "'Playfair Display', serif" }}>
               {submitted ? copy.successTitle : copy.title}
             </h2>
             <p className="text-gray-400 text-xs mt-0.5">
               {submitted ? copy.successSubtitle : copy.subtitle}
             </p>
-            {!submitted && (availabilityNote || expectedDateLabel) && requestMode === "reserve" && (
+
+            {/* Notify mode: availability info banner */}
+            {!submitted && requestMode === "notify" && (availabilityNote || expectedDateLabel) && (
+              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 px-3.5 py-3">
+                <div className="flex items-start gap-2">
+                  <i className="ri-notification-3-line text-sky-700 mt-0.5" />
+                  <div className="min-w-0">
+                    {expectedDateLabel && (
+                      <p className="text-xs font-semibold text-sky-800">
+                        Expected back on {expectedDateLabel}
+                      </p>
+                    )}
+                    {availabilityNote && (
+                      <p className="text-xs text-sky-700 mt-1 leading-5">{availabilityNote}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Borrow mode: timing info banner */}
+            {!submitted && requestMode === "borrow" && (availabilityNote || expectedDateLabel) && (
               <div className="mt-3 rounded-xl border border-amber-200 bg-[#FFF8EC] px-3.5 py-3">
                 <div className="flex items-start gap-2">
                   <i className="ri-time-line text-amber-700 mt-0.5" />
@@ -286,7 +297,11 @@ export default function RequestModal({
               </div>
             )}
           </div>
-          <button onClick={onClose} disabled={closing} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          <button
+            onClick={onClose}
+            disabled={closing}
+            className="w-8 h-8 flex-none ml-3 flex items-center justify-center rounded-lg hover:bg-gray-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <i className="ri-close-line text-gray-500" />
           </button>
         </div>
@@ -317,6 +332,7 @@ export default function RequestModal({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            {/* Name + Email */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">Your Name</label>
@@ -346,94 +362,100 @@ export default function RequestModal({
               </div>
             </div>
 
+            {/* Phone */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone Number</label>
-                <input
-                  required
-                  type="tel"
-                  name="phone"
-                  autoComplete="tel"
-                  value={form.studentPhone}
-                  onChange={(e) => setForm({ ...form, studentPhone: e.target.value })}
-                  placeholder="Enter your phone number"
-                  className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                />
+              <input
+                required
+                type="tel"
+                name="phone"
+                autoComplete="tel"
+                value={form.studentPhone}
+                onChange={(e) => setForm({ ...form, studentPhone: e.target.value })}
+                placeholder="Enter your phone number"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
+              />
               <p className="mt-1 text-[11px] text-gray-400">Use a UK number like 07123 456789 or +44 7123 456789.</p>
             </div>
 
+            {/* Book Title */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Book Title</label>
               <input
                 required
                 type="text"
                 value={form.bookTitle}
+                readOnly={!!initialBookTitle}
                 onChange={(e) => setForm({ ...form, bookTitle: e.target.value })}
                 placeholder="Enter the book title"
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
+                className={`w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none text-gray-800 ${
+                  initialBookTitle
+                    ? "bg-gray-50 text-gray-500 cursor-default"
+                    : "focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10"
+                }`}
               />
             </div>
 
-            {!isGeneralRequest && (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category</label>
-                  <select
-                    value={form.category}
-                    onChange={(e) => setForm({ ...form, category: e.target.value })}
-                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] bg-white text-gray-800 cursor-pointer"
-                  >
-                    {categoryNames.map((category) => (
-                      <option key={category}>{category}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                    <i className="ri-calendar-line mr-1 text-[#442F73]" />
-                    Needed Period (From - To)
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">From</p>
-                      <input
-                        required
-                        type="date"
-                        value={form.neededFrom}
-                        min={minNeededFrom}
-                        onChange={(e) => setForm({ ...form, neededFrom: e.target.value })}
-                        className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800 cursor-pointer"
-                      />
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Until</p>
-                      <input
-                        required
-                        type="date"
-                        value={form.neededUntil}
-                        min={form.neededFrom || undefined}
-                        onChange={(e) => setForm({ ...form, neededUntil: e.target.value })}
-                        className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800 cursor-pointer"
-                      />
-                    </div>
-                  </div>
-                  {form.neededFrom && form.neededUntil && new Date(form.neededUntil) > new Date(form.neededFrom) && (
-                    <p className="text-xs text-[#442F73] mt-1.5 flex items-center gap-1">
-                      <i className="ri-time-line" />
-                      {Math.ceil((new Date(form.neededUntil).getTime() - new Date(form.neededFrom).getTime()) / (1000 * 60 * 60 * 24))} days
-                    </p>
-                  )}
-                  {requestMode === "reserve" && expectedDateLabel && (
-                    <p className="text-xs text-amber-700 mt-2 leading-5">
-                      Reservations can only start on or after {expectedDateLabel}, when this copy is expected back.
-                    </p>
-                  )}
-                </div>
-              </>
+            {/* Category + Dates — only for general request (category) or borrow (category + dates) */}
+            {isGeneralRequest && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category</label>
+                <select
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] bg-white text-gray-800 cursor-pointer"
+                >
+                  {categoryNames.map((category) => (
+                    <option key={category}>{category}</option>
+                  ))}
+                </select>
+              </div>
             )}
 
+            {showDates && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                  <i className="ri-calendar-line mr-1 text-[#442F73]" />
+                  Needed Period (From - To)
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] text-gray-400 mb-1">From</p>
+                    <input
+                      required
+                      type="date"
+                      value={form.neededFrom}
+                      min={today}
+                      onChange={(e) => setForm({ ...form, neededFrom: e.target.value, neededUntil: "" })}
+                      className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 mb-1">Until</p>
+                    <input
+                      required
+                      type="date"
+                      value={form.neededUntil}
+                      min={form.neededFrom || today}
+                      onChange={(e) => setForm({ ...form, neededUntil: e.target.value })}
+                      className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800 cursor-pointer"
+                    />
+                  </div>
+                </div>
+                {form.neededFrom && form.neededUntil && new Date(form.neededUntil) > new Date(form.neededFrom) && (
+                  <p className="text-xs text-[#442F73] mt-1.5 flex items-center gap-1">
+                    <i className="ri-time-line" />
+                    {Math.ceil((new Date(form.neededUntil).getTime() - new Date(form.neededFrom).getTime()) / (1000 * 60 * 60 * 24))} days
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Optional note */}
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Why do you need it?</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                {requestMode === "notify" ? "Any additional note?" : "Why do you need it?"}
+              </label>
               <textarea
                 value={form.reason}
                 onChange={(e) => setForm({ ...form, reason: e.target.value.slice(0, 300) })}

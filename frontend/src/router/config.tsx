@@ -1,5 +1,6 @@
 import { Suspense, lazy } from "react";
 import type { RouteObject } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 
 const NotFound = lazy(() => import("../pages/NotFound"));
 const Home = lazy(() => import("../pages/home/page"));
@@ -49,6 +50,10 @@ const routes: RouteObject[] = [
   },
   {
     path: "/admin",
+    element: <Navigate to="/libraryadmin" replace />,
+  },
+  {
+    path: "/libraryadmin",
     element: withSuspense(<Admin />),
   },
   {

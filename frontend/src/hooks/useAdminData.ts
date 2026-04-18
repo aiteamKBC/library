@@ -32,8 +32,10 @@ interface AdminDataContextValue {
   updateRequestStatus: (id: string, status: BookRequest["status"]) => Promise<void>;
   deleteRequest: (id: string) => Promise<void>;
   addLoan: (loan: Partial<Loan>) => Promise<Loan>;
+  approveLoan: (id: string) => Promise<Loan>;
   updateLoan: (id: string, updates: Partial<Loan>) => Promise<void>;
   deleteLoan: (id: string) => Promise<void>;
+  bulkDeleteLoans: (ids: string[]) => Promise<void>;
   addSupportMessage: (message: Omit<SupportMessage, "id" | "submittedAt" | "status" | "resolvedAt" | "resolvedById" | "requesterId">) => Promise<void>;
   updateSupportMessage: (id: string, updates: Partial<SupportMessage>) => Promise<void>;
   deleteSupportMessage: (id: string) => Promise<void>;
@@ -103,6 +105,15 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     }
   }, [adminLoaded, adminLoading]);
 
+  const reloadLoansAndResources = useCallback(async () => {
+    const [loanData, resourceData] = await Promise.all([
+      api.listLoans(),
+      api.listResources(),
+    ]);
+    setLoans(loanData);
+    setBooks(resourceData);
+  }, []);
+
   const addBook = useCallback(async (book: Omit<Resource, "id">) => {
     const created = await api.createResource(book);
     setBooks((prev) => [created, ...prev]);
@@ -159,11 +170,35 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     return created;
   }, []);
 
+  const approveLoan = useCallback(async (id: string) => {
+    const approved = await api.approveLoan(id);
+    // Reload all loans: approving one request cancels the others server-side.
+    await reloadLoansAndResources();
+    return approved;
+  }, [reloadLoansAndResources]);
+
+  const STATUS_AFFECTS_AVAILABILITY = new Set(["borrowed", "returned", "overdue", "cancelled", "reserved", "approved"]);
+
   const updateLoan = useCallback(async (id: string, updates: Partial<Loan>) => {
     const updated = await api.updateLoan(id, updates);
-    setLoans((prev) => prev.map((loan) => (loan.id === id ? updated : loan)));
-    const resources = await api.listResources();
-    setBooks(resources);
+    const requiresLoanRefresh = updates.status === "returned";
+
+    if (requiresLoanRefresh) {
+      const allLoans = await api.listLoans();
+      setLoans(allLoans);
+    } else {
+      setLoans((prev) => prev.map((loan) => (loan.id === id ? updated : loan)));
+    }
+
+    // Re-fetch resources when status changes (availability) OR dueDate changes
+    // (expectedAvailableDate on the resource is derived from loan.due_date).
+    const affectsResource =
+      (updates.status && STATUS_AFFECTS_AVAILABILITY.has(updates.status)) ||
+      "dueDate" in updates;
+    if (affectsResource) {
+      const resources = await api.listResources();
+      setBooks(resources);
+    }
   }, []);
 
   const deleteLoan = useCallback(async (id: string) => {
@@ -172,6 +207,12 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const resources = await api.listResources();
     setBooks(resources);
   }, []);
+
+  const bulkDeleteLoans = useCallback(async (ids: string[]) => {
+    if (!ids.length) return;
+    await Promise.all(ids.map((id) => api.deleteLoan(id)));
+    await reloadLoansAndResources();
+  }, [reloadLoansAndResources]);
 
   const addSupportMessage = useCallback(async (message: Omit<SupportMessage, "id" | "submittedAt" | "status" | "resolvedAt" | "resolvedById" | "requesterId">) => {
     const created = await api.createSupportMessage(message);
@@ -209,8 +250,10 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     updateRequestStatus,
     deleteRequest,
     addLoan,
+    approveLoan,
     updateLoan,
     deleteLoan,
+    bulkDeleteLoans,
     addSupportMessage,
     updateSupportMessage,
     deleteSupportMessage,
@@ -224,6 +267,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     books,
     addCategory,
     updateCategory,
+    bulkDeleteLoans,
     deleteCategory,
     deleteBook,
     deleteLoan,
