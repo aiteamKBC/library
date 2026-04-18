@@ -9,6 +9,10 @@ type CacheEntry = {
   value: unknown;
 };
 
+type RequestOptions = {
+  auth?: "required" | "none";
+};
+
 const responseCache = new Map<string, CacheEntry>();
 const inflightRequests = new Map<string, Promise<unknown>>();
 
@@ -52,9 +56,10 @@ function invalidateCache(pathStartsWith?: string) {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
   const url = `${API_BASE}${path}`;
   const useCache = isGetRequest(init);
+  const authMode = options?.auth ?? "required";
 
   if (useCache) {
     const cached = responseCache.get(url);
@@ -69,10 +74,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   const promise = (async () => {
+    const authToken = getAuthToken();
     const response = await fetch(url, {
       headers: {
         "Content-Type": "application/json",
-        ...(getAuthToken() ? { Authorization: `Token ${getAuthToken()}` } : {}),
+        ...(authMode !== "none" && authToken ? { Authorization: `Token ${authToken}` } : {}),
         ...(init?.headers ?? {}),
       },
       ...init,
@@ -117,7 +123,7 @@ export const api = {
     const session = await request<AuthSession>("/auth/login/", {
       method: "POST",
       body: JSON.stringify({ identifier, password }),
-    });
+    }, { auth: "none" });
     setAuthToken(session.token);
     return session;
   },
@@ -132,7 +138,7 @@ export const api = {
       invalidateCache();
     }
   },
-  listCategories: () => request<Category[]>("/categories/"),
+  listCategories: () => request<Category[]>("/categories/", undefined, { auth: "none" }),
   createCategory: async (payload: Pick<Category, "name"> & Partial<Pick<Category, "description" | "color" | "icon" | "slug">>) => {
     const created = await request<Category>("/categories/", {
       method: "POST",
@@ -158,7 +164,7 @@ export const api = {
     invalidateCache("/categories/");
     invalidateCache("/resources/");
   },
-  listResources: () => request<Resource[]>("/resources/"),
+  listResources: () => request<Resource[]>("/resources/", undefined, { auth: "none" }),
   createResource: async (payload: Omit<Resource, "id">) => {
     const created = await request<Resource>("/resources/", {
       method: "POST",
@@ -189,7 +195,7 @@ export const api = {
     const created = await request<BookRequest>("/requests/", {
       method: "POST",
       body: JSON.stringify(payload),
-    });
+    }, { auth: "none" });
     invalidateCache("/requests/");
     return created;
   },
@@ -212,7 +218,7 @@ export const api = {
     const created = await request<Loan>("/loans/", {
       method: "POST",
       body: JSON.stringify(payload),
-    });
+    }, { auth: "none" });
     invalidateCache("/loans/");
     invalidateCache("/resources/");
     return created;
@@ -247,7 +253,7 @@ export const api = {
     const created = await request<SupportMessage>("/support-messages/", {
       method: "POST",
       body: JSON.stringify(payload),
-    });
+    }, { auth: "none" });
     invalidateCache("/support-messages/");
     return created;
   },
