@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAdminData } from "../../../../hooks/useAdminData";
 import type { Resource } from "../../../../types/library";
+import { formatResourceAvailabilityLine, getResourceQueueMetrics } from "../../../../lib/resourceAvailability";
 
 interface Props {
   resources: Resource[];
@@ -32,6 +33,7 @@ export default function RelatedResources({ resources }: Props) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {resources.map((resource) => {
           const color = categoryColorMap[resource.category] ?? "#442F73";
+          const { canBorrow, queueFull } = getResourceQueueMetrics(resource);
 
           return (
             <Link
@@ -58,6 +60,23 @@ export default function RelatedResources({ resources }: Props) {
                 {resource.title}
               </h4>
               <p className="text-gray-400 text-xs">{resource.author}</p>
+              {resource.edition && (
+                <span className="mt-2 inline-flex rounded-full border border-[#E9D9BD] bg-[#FCFAF6] px-2 py-1 text-[10px] font-semibold text-[#6F5B92]">
+                  {resource.edition}
+                </span>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold ${
+                  queueFull
+                    ? "bg-amber-50 text-amber-700"
+                    : canBorrow
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-700"
+                }`}>
+                  <i className={canBorrow ? "ri-checkbox-circle-line" : "ri-time-line"} />
+                  {formatResourceAvailabilityLine(resource)}
+                </span>
+              </div>
             </Link>
           );
         })}

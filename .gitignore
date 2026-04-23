@@ -30,6 +30,7 @@ backend/__pycache__/
 db.sqlite3
 *.sqlite3
 backend/db.sqlite3
+backend/media/
 
 # Node / frontend build output
 node_modules/

@@ -1,4 +1,7 @@
 from django.contrib.auth import get_user_model
+import os
+import uuid
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -7,6 +10,13 @@ from django.utils import timezone
 
 
 User = get_user_model()
+
+
+def loan_return_evidence_upload_to(instance: "Loan", filename: str) -> str:
+    extension = os.path.splitext(filename or "")[1].lower()
+    if not extension:
+        extension = ".bin"
+    return f"loan-return-evidence/{instance.id}/{uuid.uuid4().hex}{extension}"
 
 
 class UserProfile(models.Model):
@@ -49,6 +59,8 @@ class Category(models.Model):
 
 
 class Resource(models.Model):
+    DEFAULT_COPY_COUNT = 3
+
     class ResourceType(models.TextChoices):
         BOOK = "Book", "Book"
         ARTICLE = "Article", "Article"
@@ -65,6 +77,7 @@ class Resource(models.Model):
     level = models.CharField(max_length=50, blank=True)
     author = models.CharField(max_length=255)
     publisher = models.CharField(max_length=255, blank=True)
+    edition = models.CharField(max_length=80, blank=True)
     publication_year = models.CharField(max_length=4, blank=True)
     page_count = models.PositiveIntegerField(blank=True, null=True)
     isbn13 = models.CharField(max_length=13, blank=True)
@@ -88,6 +101,96 @@ class Resource(models.Model):
 
     def _copies_for_metrics(self):
         return self._prefetched_copies() or list(self.copies.all())
+
+    def _shelf_available_copies(self) -> int:
+        return sum(1 for copy in self._copies_for_metrics() if copy.status == BookCopy.CopyStatus.AVAILABLE)
+
+    @property
+    def pending_borrow_request_count(self) -> int:
+        annotated = getattr(self, "pending_borrow_request_total", None)
+        if annotated is not None:
+            return int(annotated)
+        return Loan.objects.filter(
+            book_copy__resource=self,
+            status=Loan.LoanStatus.REQUESTED,
+            loan_type=Loan.LoanType.BORROW,
+        ).count()
+
+    @property
+    def borrowable_copies(self) -> int:
+        return max(self._shelf_available_copies() - self.pending_borrow_request_count, 0)
+
+    @property
+    def queue_full(self) -> bool:
+        shelf_available = self._shelf_available_copies()
+        return shelf_available > 0 and self.pending_borrow_request_count >= shelf_available
+
+    @property
+    def pending_requests_cover_available_copies(self) -> bool:
+        return self.queue_full
+
+    def ensure_copy_inventory(self, target_count: int | None = None):
+        target_count = self.DEFAULT_COPY_COUNT if target_count is None else target_count
+        existing_accessions = set(self.copies.values_list("accession_number", flat=True))
+        copies_to_create: list[BookCopy] = []
+
+        for number in range(1, target_count + 1):
+            accession_number = f"{self.id}-{number:03d}"
+            if accession_number in existing_accessions:
+                continue
+            copies_to_create.append(BookCopy(resource=self, accession_number=accession_number))
+
+        if copies_to_create:
+            BookCopy.objects.bulk_create(copies_to_create)
+
+        return copies_to_create
+
+    def sync_copy_inventory(self, target_count: int | None = None):
+        target_count = self.DEFAULT_COPY_COUNT if target_count is None else target_count
+        if target_count < 1:
+            raise ValidationError("A library title must keep at least 1 copy.")
+
+        copies = list(self.copies.order_by("-accession_number").prefetch_related("loans"))
+        current_count = len(copies)
+
+        if target_count == current_count:
+            return {"created": 0, "removed": 0}
+
+        if target_count > current_count:
+            created = self.ensure_copy_inventory(target_count)
+            return {"created": len(created), "removed": 0}
+
+        copies_to_remove = current_count - target_count
+        removable_copies = [
+            copy
+            for copy in copies
+            if copy.status == BookCopy.CopyStatus.AVAILABLE and not copy.loans.exists()
+        ]
+
+        if len(removable_copies) < copies_to_remove:
+            raise ValidationError(
+                "This title cannot be reduced to that count yet because not enough unused available copies can be removed safely."
+            )
+
+        for copy in removable_copies[:copies_to_remove]:
+            copy.delete()
+
+        return {"created": 0, "removed": copies_to_remove}
+
+    def first_available_copy(self):
+        prefetched_copies = self._prefetched_copies()
+        if prefetched_copies is not None:
+            ordered = sorted(prefetched_copies, key=lambda copy: copy.accession_number)
+            return next((copy for copy in ordered if copy.status == BookCopy.CopyStatus.AVAILABLE), None)
+        return self.copies.filter(status=BookCopy.CopyStatus.AVAILABLE).order_by("accession_number").first()
+
+    def first_usable_copy(self):
+        blocked_statuses = {BookCopy.CopyStatus.LOST, BookCopy.CopyStatus.MAINTENANCE}
+        prefetched_copies = self._prefetched_copies()
+        if prefetched_copies is not None:
+            ordered = sorted(prefetched_copies, key=lambda copy: copy.accession_number)
+            return next((copy for copy in ordered if copy.status not in blocked_statuses), None)
+        return self.copies.exclude(status__in=blocked_statuses).order_by("accession_number").first()
 
     def _active_circulation_loans(self):
         copies = self._prefetched_copies()
@@ -124,14 +227,14 @@ class Resource(models.Model):
 
     @property
     def available_copies(self) -> int:
-        return sum(1 for copy in self._copies_for_metrics() if copy.status == BookCopy.CopyStatus.AVAILABLE)
+        return self._shelf_available_copies()
 
     @property
     def availability_status(self) -> str:
         statuses = [copy.status for copy in self._copies_for_metrics()]
         if not statuses:
             return BookCopy.CopyStatus.LOST
-        if BookCopy.CopyStatus.AVAILABLE in statuses:
+        if self.available_copies > 0:
             return BookCopy.CopyStatus.AVAILABLE
         if BookCopy.CopyStatus.RESERVED in statuses:
             return BookCopy.CopyStatus.RESERVED
@@ -143,10 +246,17 @@ class Resource(models.Model):
 
     @property
     def availability_label(self) -> str:
+        if self.queue_full:
+            return "Queue full"
+        if self.borrowable_copies > 0 and self.pending_borrow_request_count > 0:
+            return f"{self.borrowable_copies} open to borrow"
+        if self.available_copies > 0:
+            return f"{self.available_copies} available"
+
         labels = {
             BookCopy.CopyStatus.AVAILABLE: "Available now",
             BookCopy.CopyStatus.RESERVED: "Reserved",
-            BookCopy.CopyStatus.BORROWED: "Borrowed",
+            BookCopy.CopyStatus.BORROWED: "Unavailable",
             BookCopy.CopyStatus.LOST: "Unavailable",
             BookCopy.CopyStatus.MAINTENANCE: "Unavailable",
         }
@@ -154,7 +264,7 @@ class Resource(models.Model):
 
     @property
     def can_borrow(self) -> bool:
-        return self.availability_status == BookCopy.CopyStatus.AVAILABLE
+        return self.borrowable_copies > 0
 
     @property
     def can_reserve(self) -> bool:
@@ -163,15 +273,18 @@ class Resource(models.Model):
     @property
     def expected_available_date(self):
         active_loans = self._active_circulation_loans()
-        return active_loans[0].due_date if active_loans else None
+        due_dates = [loan.due_date for loan in active_loans if loan.due_date is not None]
+        return min(due_dates) if due_dates else None
 
     @property
     def availability_note(self) -> str:
+        if self.queue_full:
+            return "All copies currently on the shelf are already covered by pending borrow requests. Where shown, the expected date reflects the earliest current due date for a borrowed copy and does not guarantee immediate availability."
         if self.availability_status == BookCopy.CopyStatus.BORROWED:
             # expected_available_date is surfaced separately in the UI — do not repeat it here.
-            return "Currently on loan. Leave your details below and we'll notify you when it's available."
+            return "No copies are currently available. Where shown, the expected date reflects the earliest current due date for a borrowed copy and may change if the item is returned late."
         if self.availability_status == BookCopy.CopyStatus.RESERVED:
-            return "This book is currently reserved for another member. Register below and we will let you know when it is free."
+            return "No copies are currently available. Register below and we will let you know when one becomes free."
         if self.availability_status == BookCopy.CopyStatus.AVAILABLE:
             return ""
         return "Please contact the library team for availability updates."
@@ -201,7 +314,12 @@ class BookCopy(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.accession_number:
-            next_number = self.resource.copies.count() + 1
+            existing_accessions = set(
+                self.resource.copies.exclude(pk=self.pk).values_list("accession_number", flat=True)
+            )
+            next_number = 1
+            while f"{self.resource_id}-{next_number:03d}" in existing_accessions:
+                next_number += 1
             self.accession_number = f"{self.resource_id}-{next_number:03d}"
         super().save(*args, **kwargs)
 
@@ -220,6 +338,12 @@ class Loan(models.Model):
     class LoanType(models.TextChoices):
         BORROW = "borrow", "Borrow Request"
         NOTIFY = "notify", "Notification Registration"
+
+    class ReturnCondition(models.TextChoices):
+        GOOD = "good", "Good"
+        WORN = "worn", "Worn / Used"
+        DAMAGED = "damaged", "Damaged"
+        TORN = "torn", "Needs Repair"
 
     id = models.CharField(primary_key=True, max_length=50)
     borrower = models.ForeignKey(
@@ -242,6 +366,9 @@ class Loan(models.Model):
     borrowed_at = models.DateTimeField(blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
     returned_at = models.DateTimeField(blank=True, null=True)
+    return_condition = models.CharField(max_length=20, choices=ReturnCondition.choices, blank=True)
+    return_condition_notes = models.TextField(blank=True)
+    return_evidence = models.FileField(upload_to=loan_return_evidence_upload_to, blank=True)
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -319,6 +446,7 @@ class Loan(models.Model):
 
     def clean(self):
         super().clean()
+        previous = None
         if not self.borrower_id and not (self.borrower_name and self.borrower_email):
             raise ValidationError("A loan must include either a linked borrower or a borrower name and email.")
 
@@ -329,15 +457,30 @@ class Loan(models.Model):
                 if self.status not in allowed:
                     raise ValidationError({"status": f"Cannot change loan status from {previous} to {self.status}."})
 
+        if self.status == self.LoanStatus.RETURNED and previous != self.LoanStatus.RETURNED and not self.return_condition:
+            raise ValidationError({"return_condition": "Please record the condition of the returned book copy."})
+
+        if (
+            self.status == self.LoanStatus.RETURNED
+            and previous != self.LoanStatus.RETURNED
+            and self.return_condition in {self.ReturnCondition.DAMAGED, self.ReturnCondition.TORN}
+            and not self.return_evidence
+        ):
+            raise ValidationError(
+                {"return_evidence": "Please attach photo or PDF evidence for damaged or repair-needed returns."}
+            )
+
         if not self.book_copy_id or self.status not in self.active_statuses():
             return
 
-        conflicting = Loan.objects.filter(
+        conflicting_for_resource = Loan.objects.filter(
             book_copy__resource=self.book_copy.resource,
             status__in=self.active_statuses(),
         )
         if self.pk:
-            conflicting = conflicting.exclude(pk=self.pk)
+            conflicting_for_resource = conflicting_for_resource.exclude(pk=self.pk)
+
+        conflicting_for_copy = conflicting_for_resource.filter(book_copy=self.book_copy)
 
         same_borrower_filter = Q()
         if self.borrower_id:
@@ -350,13 +493,13 @@ class Loan(models.Model):
                 borrower_phone=self.borrower_phone,
             )
 
-        if same_borrower_filter and conflicting.filter(same_borrower_filter).exists():
+        if same_borrower_filter and conflicting_for_resource.filter(same_borrower_filter).exists():
             raise ValidationError({"book_copy": "You already have an active borrow or reservation request for this book."})
 
         if self.status == self.LoanStatus.RESERVED:
-            if conflicting.filter(status=self.LoanStatus.RESERVED).exists():
+            if conflicting_for_copy.filter(status=self.LoanStatus.RESERVED).exists():
                 raise ValidationError({"book_copy": "This copy already has an active reservation."})
-            if conflicting.filter(status__in=self.pre_checkout_statuses()).exists():
+            if conflicting_for_copy.filter(status__in=self.pre_checkout_statuses()).exists():
                 raise ValidationError({"book_copy": "This copy is already being prepared for another borrower."})
         elif self.status == self.LoanStatus.REQUESTED:
             # Keep the waiting-list behaviour simple: multiple students can
@@ -365,9 +508,9 @@ class Loan(models.Model):
             # the same borrower (handled above).
             return
         else:
-            if conflicting.filter(status=self.LoanStatus.RESERVED).exists():
+            if conflicting_for_copy.filter(status=self.LoanStatus.RESERVED).exists():
                 raise ValidationError({"book_copy": "This copy is reserved for another student."})
-            if conflicting.filter(status__in=(*self.pre_checkout_statuses(), *self.circulation_statuses())).exists():
+            if conflicting_for_copy.filter(status__in=(*self.pre_checkout_statuses(), *self.circulation_statuses())).exists():
                 raise ValidationError({"book_copy": "This copy already has an active borrowing flow."})
 
     def save(self, *args, **kwargs):
@@ -399,12 +542,37 @@ class Loan(models.Model):
         self.sync_book_copy_status(book_copy)
 
 
+class NotificationLog(models.Model):
+    class NotificationType(models.TextChoices):
+        DUE_SOON = "due_soon", "Due Soon"
+        OVERDUE = "overdue", "Overdue"
+
+    loan = models.ForeignKey(Loan, on_delete=models.CASCADE, related_name="notification_logs")
+    notification_type = models.CharField(max_length=30, choices=NotificationType.choices)
+    recipient_email = models.EmailField(blank=True)
+    sent_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "library_notification_log"
+        ordering = ["-sent_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["loan", "notification_type"],
+                name="library_notification_log_unique_loan_type",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.loan_id} - {self.notification_type}"
+
+
 class BookRequest(models.Model):
     class RequestStatus(models.TextChoices):
         PENDING = "pending", "Pending"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
         ORDERED = "ordered", "Ordered"
+        CANCELLED = "cancelled", "Cancelled"
 
     id = models.CharField(primary_key=True, max_length=50)
     requester = models.ForeignKey(

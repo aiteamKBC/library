@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
 import type { BookRequest } from "../../../types/library";
 
-const STATUS_TABS = ["all", "pending", "approved", "rejected"] as const;
+const STATUS_TABS = ["all", "pending", "approved", "rejected", "cancelled"] as const;
 
 const statusStyles: Record<string, { badge: string; bg: string }> = {
   pending: {
@@ -16,6 +16,10 @@ const statusStyles: Record<string, { badge: string; bg: string }> = {
   rejected: {
     badge: "bg-red-50 text-red-600 border border-red-200",
     bg: "bg-red-50/20",
+  },
+  cancelled: {
+    badge: "bg-gray-100 text-gray-600 border border-gray-200",
+    bg: "bg-gray-50",
   },
 };
 
@@ -36,6 +40,7 @@ export default function RequestsInbox() {
       pending: requests.filter((request) => request.status === "pending").length,
       approved: requests.filter((request) => request.status === "approved").length,
       rejected: requests.filter((request) => request.status === "rejected").length,
+      cancelled: requests.filter((request) => request.status === "cancelled").length,
     }),
     [requests],
   );
@@ -60,12 +65,12 @@ export default function RequestsInbox() {
   };
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="w-full space-y-6">
       <div>
         <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
-          New Book Requests
+          Book Suggestions
         </h2>
-        <p className="text-gray-400 text-sm mt-0.5">Review and manage requests for titles not yet available in the library collection.</p>
+        <p className="text-gray-400 text-sm mt-0.5">Review and manage suggested titles that are not yet available in the library collection.</p>
       </div>
 
       <div className="flex gap-2 flex-wrap">
@@ -270,8 +275,8 @@ export default function RequestsInbox() {
             <div className="w-14 h-14 mx-auto bg-gray-50 rounded-full flex items-center justify-center mb-4">
               <i className="ri-inbox-2-line text-gray-300 text-2xl" />
             </div>
-            <p className="text-gray-500 font-medium mb-1">No requests found</p>
-            <p className="text-gray-400 text-sm">New book requests will appear here.</p>
+            <p className="text-gray-500 font-medium mb-1">No suggestions found</p>
+            <p className="text-gray-400 text-sm">Book suggestions will appear here.</p>
           </div>
         )}
       </div>

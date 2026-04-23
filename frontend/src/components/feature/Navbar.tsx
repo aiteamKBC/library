@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLibrarySession } from "../../hooks/useLibrarySession";
 
 const navLinks = [
   { label: "Home", path: "/" },
@@ -9,14 +10,18 @@ const navLinks = [
 ];
 
 const adminLink = { label: "Library Admin", path: "/libraryadmin" };
+const accountLink = { label: "My Account", guestLabel: "Student Login", path: "/account" };
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(() => window.scrollY > 30);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileSearch, setMobileSearch] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const headerRef = useRef<HTMLElement | null>(null);
+  const { user, logout } = useLibrarySession();
+  const showStudentAccountLink = !user || user.role === "student";
 
   const submitSearch = (query: string) => {
     const trimmedQuery = query.trim();
@@ -48,6 +53,20 @@ export default function Navbar() {
   const isAdminActive =
     location.pathname === adminLink.path ||
     (adminLink.path !== "/" && location.pathname.startsWith(adminLink.path));
+  const isAccountActive =
+    location.pathname === accountLink.path ||
+    (accountLink.path !== "/" && location.pathname.startsWith(accountLink.path));
+
+  const handleLogout = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await logout();
+      navigate("/");
+    } finally {
+      setSigningOut(false);
+    }
+  };
 
   return (
     <header ref={headerRef} className="fixed top-0 left-0 right-0 z-50">
@@ -101,6 +120,24 @@ export default function Navbar() {
           </ul>
 
           <div className="flex items-center gap-2 md:gap-3">
+            {showStudentAccountLink && (
+              <Link
+                to={accountLink.path}
+                className={`hidden md:flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap ${
+                  isAccountActive
+                    ? scrolled
+                      ? "bg-[#CEA869] text-[#241453] ring-2 ring-[#CEA869]/25"
+                      : "bg-[#CEA869] text-[#241453] border border-[#F9D598]/40"
+                    : scrolled
+                      ? "bg-[#F3E9DA] text-[#241453] hover:bg-[#EBD8B9]"
+                      : "bg-white/12 backdrop-blur-sm text-white hover:bg-white/22 border border-white/20"
+                }`}
+              >
+                <i className="ri-user-line text-xs" />
+                {user ? accountLink.label : accountLink.guestLabel}
+              </Link>
+            )}
+
             <Link
               to={adminLink.path}
               className={`hidden md:flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap ${
@@ -116,6 +153,22 @@ export default function Navbar() {
               <i className="ri-shield-keyhole-line text-xs" />
               {adminLink.label}
             </Link>
+
+            {user && (
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                disabled={signingOut}
+                className={`hidden md:flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                  scrolled
+                    ? "bg-white border border-gray-200 text-gray-600 hover:text-rose-600 hover:border-rose-200"
+                    : "bg-white/12 border border-white/20 text-white hover:bg-white/20"
+                }`}
+                aria-label="Sign out"
+              >
+                <i className={signingOut ? "ri-loader-4-line animate-spin" : "ri-logout-box-r-line"} />
+              </button>
+            )}
 
             <button
               onClick={() => setMenuOpen(!menuOpen)}
@@ -168,6 +221,20 @@ export default function Navbar() {
             })}
           </ul>
           <div className="mt-4 pt-4 border-t border-gray-100 space-y-2.5">
+            {showStudentAccountLink && (
+              <Link
+                to={accountLink.path}
+                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
+                  isAccountActive
+                    ? "text-[#182028] bg-[#F3E9DA] font-semibold"
+                    : "text-gray-600 hover:text-[#182028] hover:bg-[#F9F4EC]"
+                }`}
+              >
+                <i className="ri-user-line" />
+                {user ? accountLink.label : accountLink.guestLabel}
+                {isAccountActive && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#CEA869]" />}
+              </Link>
+            )}
             <Link
               to={adminLink.path}
               className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
@@ -187,6 +254,17 @@ export default function Navbar() {
               <i className="ri-book-open-line" />
               Browse All Books
             </Link>
+            {user && (
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                disabled={signingOut}
+                className="flex items-center justify-center gap-2 w-full py-3 rounded-full text-sm font-semibold border border-rose-200 text-rose-700 bg-rose-50 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <i className={signingOut ? "ri-loader-4-line animate-spin" : "ri-logout-box-r-line"} />
+                {signingOut ? "Signing Out..." : "Sign Out"}
+              </button>
+            )}
           </div>
         </div>
       )}

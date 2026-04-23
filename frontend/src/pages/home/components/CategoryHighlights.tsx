@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { getResourceQueueMetrics } from "../../../lib/resourceAvailability";
 
 export default function CategoryHighlights() {
   const { books, categories, loading } = useAdminData();
@@ -7,6 +8,9 @@ export default function CategoryHighlights() {
   const categoryCards = categories.slice(0, 4).map((category) => ({
     ...category,
     count: books.filter((book) => book.categoryId === category.slug).length,
+    borrowableCopies: books
+      .filter((book) => book.categoryId === category.slug)
+      .reduce((sum, book) => sum + getResourceQueueMetrics(book).borrowableCopies, 0),
   }));
   const skeletonItems = Array.from({ length: 4 }, (_, index) => index);
 
@@ -52,41 +56,43 @@ export default function CategoryHighlights() {
               </div>
             ))
             : categoryCards.map((cat) => (
-            <Link
-              key={cat.id}
-              to={`/resources?category=${encodeURIComponent(cat.name)}`}
-              className="group bg-white rounded-2xl border border-[#E9D9BD] hover:border-[#2C3A4B]/20 hover:shadow-lg transition-all duration-300 cursor-pointer block p-5"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div
-                  className="w-12 h-12 flex-none flex items-center justify-center rounded-xl"
-                  style={{ backgroundColor: `${cat.color}18` }}
+                <Link
+                  key={cat.id}
+                  to={`/resources?category=${encodeURIComponent(cat.name)}`}
+                  className="group bg-white rounded-2xl border border-[#E9D9BD] hover:border-[#2C3A4B]/20 hover:shadow-lg transition-all duration-300 cursor-pointer block p-5"
                 >
-                  <i className={`${cat.icon} text-xl`} style={{ color: cat.color }} />
-                </div>
-                <span
-                  className="text-xs font-bold px-2.5 py-1 rounded-full"
-                  style={{ backgroundColor: `${cat.color}12`, color: cat.color }}
-                >
-                  {cat.count}
-                </span>
-              </div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div
+                      className="w-12 h-12 flex-none flex items-center justify-center rounded-xl"
+                      style={{ backgroundColor: `${cat.color}18` }}
+                    >
+                      <i className={`${cat.icon} text-xl`} style={{ color: cat.color }} />
+                    </div>
+                    <span
+                      className="text-xs font-bold px-2.5 py-1 rounded-full"
+                      style={{ backgroundColor: `${cat.color}12`, color: cat.color }}
+                    >
+                      {cat.count}
+                    </span>
+                  </div>
 
-              <h3 className="font-bold text-[#203042] text-base leading-tight group-hover:text-[#2C3A4B] transition-colors duration-200">
-                {cat.name}
-              </h3>
+                  <h3 className="font-bold text-[#203042] text-base leading-tight group-hover:text-[#2C3A4B] transition-colors duration-200">
+                    {cat.name}
+                  </h3>
 
-              <div className="flex items-center justify-between pt-4 mt-4 border-t border-[#E9D9BD]">
-                <span className="text-xs text-gray-400">{cat.count} books</span>
-                <span
-                  className="flex items-center gap-1 text-xs font-semibold group-hover:gap-2 transition-all duration-200"
-                  style={{ color: cat.color }}
-                >
-                  Open <i className="ri-arrow-right-line" />
-                </span>
-              </div>
-            </Link>
-            ))}
+                  <div className="flex items-center justify-between pt-4 mt-4 border-t border-[#E9D9BD]">
+                    <span className="text-xs text-gray-400">
+                      {cat.count} books | {cat.borrowableCopies} open to borrow
+                    </span>
+                    <span
+                      className="flex items-center gap-1 text-xs font-semibold group-hover:gap-2 transition-all duration-200"
+                      style={{ color: cat.color }}
+                    >
+                      Open <i className="ri-arrow-right-line" />
+                    </span>
+                  </div>
+                </Link>
+              ))}
         </div>
       </div>
     </section>

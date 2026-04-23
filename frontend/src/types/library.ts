@@ -15,6 +15,7 @@ export interface Resource {
   categoryId: string;
   author: string;
   publisher?: string;
+  edition?: string;
   publicationYear?: string;
   pageCount?: number;
   isbn13?: string;
@@ -28,8 +29,12 @@ export interface Resource {
   featured?: boolean;
   popular?: boolean;
   coverColor?: string;
+  inventoryCount?: number;
   totalCopies?: number;
   availableCopies?: number;
+  borrowableCopies?: number;
+  pendingBorrowRequests?: number;
+  queueFull?: boolean;
   availabilityStatus?: "available" | "reserved" | "borrowed" | "lost" | "maintenance";
   availabilityLabel?: string;
   expectedAvailableDate?: string | null;
@@ -40,6 +45,8 @@ export interface Resource {
 
 export interface BookRequest {
   id: string;
+  requesterId?: number | null;
+  resourceId?: string | null;
   studentName: string;
   studentEmail: string;
   studentPhone?: string;
@@ -50,7 +57,9 @@ export interface BookRequest {
   neededFrom?: string;
   neededUntil?: string;
   submittedAt: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "ordered" | "cancelled";
+  reviewedById?: number | null;
+  reviewNotes?: string;
 }
 
 export interface SupportMessage {
@@ -89,6 +98,10 @@ export interface Loan {
   borrowedAt?: string | null;
   dueDate?: string | null;
   returnedAt?: string | null;
+  returnCondition?: "good" | "worn" | "damaged" | "torn" | null;
+  returnConditionNotes?: string;
+  returnEvidence?: string | null;
+  returnEvidenceName?: string | null;
   notes?: string;
 }
 
@@ -105,4 +118,25 @@ export interface AuthSession {
   token: string;
   user: AuthUser;
   next?: string;
+}
+
+export interface StudentRegistrationPayload {
+  fullName: string;
+  email: string;
+  password: string;
+  phoneNumber?: string;
+  studentIdCode?: string;
+}
+
+export interface StudentProfileUpdatePayload {
+  fullName: string;
+  phoneNumber?: string;
+  studentIdCode?: string;
+}
+
+export interface StudentDashboard {
+  user: AuthUser;
+  loans: Loan[];
+  requests: BookRequest[];
+  supportMessages: SupportMessage[];
 }

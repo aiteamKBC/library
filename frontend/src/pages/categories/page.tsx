@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import Navbar from "../../components/feature/Navbar";
 import Footer from "../../components/feature/Footer";
 import { useAdminData } from "../../hooks/useAdminData";
+import { getResourceQueueMetrics } from "../../lib/resourceAvailability";
 
 export default function CategoriesPage() {
   const { books, categories, loading } = useAdminData();
@@ -9,9 +10,13 @@ export default function CategoriesPage() {
   const categoryCards = categories.map((category) => ({
     ...category,
     count: books.filter((book) => book.categoryId === category.slug).length,
+    borrowableCopies: books
+      .filter((book) => book.categoryId === category.slug)
+      .reduce((sum, book) => sum + getResourceQueueMetrics(book).borrowableCopies, 0),
   }));
   const categorySkeletons = Array.from({ length: 5 }, (_, index) => index);
   const totalResources = books.length;
+  const totalBorrowableCopies = books.reduce((sum, book) => sum + getResourceQueueMetrics(book).borrowableCopies, 0);
 
   return (
     <div className="min-h-screen bg-white">
@@ -37,7 +42,7 @@ export default function CategoriesPage() {
                 Browse the current library books organised by category.
               </p>
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-6 flex-wrap">
               <div className="text-center">
                 {loading ? <div className="h-8 w-10 rounded bg-white/15 animate-pulse mx-auto mb-1" /> : <p className="text-3xl font-bold text-white">{categories.length}</p>}
                 <p className="text-white/50 text-xs">Subject Areas</p>
@@ -46,6 +51,11 @@ export default function CategoriesPage() {
               <div className="text-center">
                 {loading ? <div className="h-8 w-10 rounded bg-white/15 animate-pulse mx-auto mb-1" /> : <p className="text-3xl font-bold text-white">{totalResources}</p>}
                 <p className="text-white/50 text-xs">Total Books</p>
+              </div>
+              <div className="w-px h-10 bg-white/20" />
+              <div className="text-center">
+                {loading ? <div className="h-8 w-12 rounded bg-white/15 animate-pulse mx-auto mb-1" /> : <p className="text-3xl font-bold text-white">{totalBorrowableCopies}</p>}
+                <p className="text-white/50 text-xs">Open to Borrow</p>
               </div>
             </div>
           </div>
@@ -71,47 +81,47 @@ export default function CategoriesPage() {
                 </div>
               ))
               : categoryCards.map((cat) => (
-              <Link
-                key={cat.id}
-                to={`/resources?category=${encodeURIComponent(cat.name)}`}
-                className="group bg-white rounded-2xl overflow-hidden border border-[#E9D9BD] hover:border-transparent hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer block"
-              >
-                <div
-                  className="h-2 w-full transition-all duration-300 group-hover:h-3"
-                  style={{ backgroundColor: cat.color }}
-                />
+                <Link
+                  key={cat.id}
+                  to={`/resources?category=${encodeURIComponent(cat.name)}`}
+                  className="group bg-white rounded-2xl overflow-hidden border border-[#E9D9BD] hover:border-transparent hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer block"
+                >
+                  <div
+                    className="h-2 w-full transition-all duration-300 group-hover:h-3"
+                    style={{ backgroundColor: cat.color }}
+                  />
 
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div
-                      className="w-12 h-12 flex items-center justify-center rounded-xl"
-                      style={{ backgroundColor: `${cat.color}15` }}
-                    >
-                      <i className={`${cat.icon} text-2xl`} style={{ color: cat.color }} />
+                  <div className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div
+                        className="w-12 h-12 flex items-center justify-center rounded-xl"
+                        style={{ backgroundColor: `${cat.color}15` }}
+                      >
+                        <i className={`${cat.icon} text-2xl`} style={{ color: cat.color }} />
+                      </div>
+                      <span
+                        className="text-xs font-bold px-2.5 py-1 rounded-full"
+                        style={{ backgroundColor: `${cat.color}12`, color: cat.color }}
+                      >
+                        {cat.count}
+                      </span>
                     </div>
-                    <span
-                      className="text-xs font-bold px-2.5 py-1 rounded-full"
-                      style={{ backgroundColor: `${cat.color}12`, color: cat.color }}
-                    >
-                      {cat.count}
-                    </span>
-                  </div>
 
-                  <h3 className="font-semibold text-[#241453] text-base mb-5 group-hover:text-[#442F73] transition-colors duration-200">
-                    {cat.name}
-                  </h3>
+                    <h3 className="font-semibold text-[#241453] text-base mb-5 group-hover:text-[#442F73] transition-colors duration-200">
+                      {cat.name}
+                    </h3>
 
-                  <div className="flex items-center justify-between pt-4 border-t border-[#E9D9BD]">
-                    <span className="text-xs text-gray-400">{cat.count} books</span>
-                    <span
-                      className="flex items-center gap-1 text-xs font-semibold group-hover:gap-2 transition-all duration-200"
-                      style={{ color: cat.color }}
-                    >
-                      Browse <i className="ri-arrow-right-line" />
-                    </span>
+                    <div className="flex items-center justify-between pt-4 border-t border-[#E9D9BD]">
+                      <span className="text-xs text-gray-400">{cat.count} books | {cat.borrowableCopies} open to borrow</span>
+                      <span
+                        className="flex items-center gap-1 text-xs font-semibold group-hover:gap-2 transition-all duration-200"
+                        style={{ color: cat.color }}
+                      >
+                        Browse <i className="ri-arrow-right-line" />
+                      </span>
+                    </div>
                   </div>
-                </div>
-              </Link>
+                </Link>
               ))}
           </div>
         </div>

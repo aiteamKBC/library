@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BookCopy, BookRequest, Category, Loan, Resource, SupportMessage
+from .models import BookCopy, BookRequest, Category, Loan, NotificationLog, Resource, SupportMessage
 
 
 @admin.register(Category)
@@ -29,8 +29,8 @@ class BookCopyAdmin(admin.ModelAdmin):
 
 @admin.register(Loan)
 class LoanAdmin(admin.ModelAdmin):
-    list_display = ("id", "book_copy", "display_borrower", "borrower_phone", "borrower_student_id", "status", "requested_at", "due_date", "returned_at")
-    list_filter = ("status",)
+    list_display = ("id", "book_copy", "display_borrower", "borrower_phone", "borrower_student_id", "status", "return_condition", "requested_at", "due_date", "returned_at")
+    list_filter = ("status", "return_condition")
     search_fields = (
         "id",
         "book_copy__accession_number",
@@ -55,6 +55,19 @@ class BookRequestAdmin(admin.ModelAdmin):
     list_display = ("id", "book_title", "student_name", "student_phone", "student_id_code", "category", "status", "submitted_at")
     list_filter = ("status", "category")
     search_fields = ("id", "book_title", "student_name", "student_email", "student_phone", "student_id_code")
+
+
+@admin.register(NotificationLog)
+class NotificationLogAdmin(admin.ModelAdmin):
+    list_display = ("loan", "notification_type", "recipient_email", "sent_at")
+    list_filter = ("notification_type", "sent_at")
+    search_fields = (
+        "loan__id",
+        "loan__borrower_name",
+        "loan__borrower_email",
+        "loan__book_copy__resource__title",
+        "recipient_email",
+    )
 
 
 @admin.register(SupportMessage)

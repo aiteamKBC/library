@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from library.models import BookCopy, Category, Resource
+from library.models import Category, Resource
 from library.seed_data import CATEGORIES, RESOURCES
 
 
@@ -22,7 +22,7 @@ class Command(BaseCommand):
                     "icon": category_meta.get("icon", "ri-book-open-line"),
                 },
             )
-            Resource.objects.update_or_create(
+            resource, _ = Resource.objects.update_or_create(
                 id=item["id"],
                 defaults={
                     "title": item["title"],
@@ -44,9 +44,6 @@ class Command(BaseCommand):
                     "cover_color": item.get("coverColor", "#442F73"),
                 },
             )
-            BookCopy.objects.get_or_create(
-                resource_id=item["id"],
-                accession_number=f"{item['id']}-001",
-            )
+            resource.ensure_copy_inventory()
 
         self.stdout.write(self.style.SUCCESS(f"Imported {len(RESOURCES)} books from the library seed catalog."))

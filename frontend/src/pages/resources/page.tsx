@@ -4,6 +4,7 @@ import Navbar from "../../components/feature/Navbar";
 import Footer from "../../components/feature/Footer";
 import { useAdminData } from "../../hooks/useAdminData";
 import RequestModal from "./components/RequestModal";
+import { formatResourceAvailabilityLine, getResourceQueueMetrics } from "../../lib/resourceAvailability";
 import { rankResources } from "../../lib/search";
 
 export default function ResourcesPage() {
@@ -20,7 +21,7 @@ export default function ResourcesPage() {
     [categories],
   );
   const availableBooksCount = useMemo(
-    () => books.filter((book) => book.availabilityStatus === "available").length,
+    () => books.filter((book) => getResourceQueueMetrics(book).canBorrow).length,
     [books],
   );
 
@@ -71,7 +72,7 @@ export default function ResourcesPage() {
                 <div className="mt-3 h-4 w-64 rounded-full bg-white/15 animate-pulse" />
               ) : (
                 <p className="text-white/50 text-sm mt-2">
-                  {availableBooksCount} available now out of {books.length} books across {categories.length} categories
+                  {availableBooksCount} books are open to borrow right now out of {books.length} titles across {categories.length} categories
                 </p>
               )}
             </div>
@@ -158,7 +159,10 @@ export default function ResourcesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {filtered.map((book) => {
               const color = categoryColorMap[book.category] ?? "#442F73";
-              const availabilityBadge = {
+              const { queueFull } = getResourceQueueMetrics(book);
+              const availabilityBadge = queueFull
+                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                : {
                 available: "bg-emerald-50 text-emerald-700 border border-emerald-200",
                 borrowed: "bg-amber-50 text-amber-700 border border-amber-200",
                 reserved: "bg-sky-50 text-sky-700 border border-sky-200",
@@ -214,11 +218,16 @@ export default function ResourcesPage() {
                   <h3 className="font-bold text-[#241453] text-base leading-snug mb-2 line-clamp-3 group-hover:text-[#442F73] transition-colors duration-200">
                     {book.title}
                   </h3>
-                  <p className="text-gray-500 text-sm mb-5">by {book.author}</p>
+                  <p className="text-gray-500 text-sm mb-2">by {book.author}</p>
+                  {book.edition && (
+                    <span className="mb-4 inline-flex w-fit rounded-full border border-[#E9D9BD] bg-[#FCFAF6] px-2.5 py-1 text-[10px] font-semibold text-[#6F5B92]">
+                      {book.edition}
+                    </span>
+                  )}
 
                   <div className="mt-auto pt-4 border-t border-[#E9D9BD] flex items-center justify-between">
                     <div className="flex flex-col gap-1">
-                      <span className="text-xs text-gray-400">Single-copy title</span>
+                      <span className="text-xs text-gray-400">{formatResourceAvailabilityLine(book)}</span>
                       <span className={`inline-flex w-fit px-2 py-0.5 text-[10px] font-semibold rounded-full ${availabilityBadge}`}>
                         {book.availabilityLabel ?? "Unavailable"}
                       </span>

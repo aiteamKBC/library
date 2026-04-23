@@ -1,12 +1,17 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { getResourceQueueMetrics } from "../../../lib/resourceAvailability";
 import { rankResources } from "../../../lib/search";
 
 export default function HeroSection() {
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const { books, loading } = useAdminData();
+  const totalBorrowableCopies = useMemo(
+    () => books.reduce((sum, book) => sum + getResourceQueueMetrics(book).borrowableCopies, 0),
+    [books],
+  );
 
   const suggestions = useMemo(
     () => (searchQuery.trim() ? rankResources(books, searchQuery).slice(0, 5) : []),
@@ -66,6 +71,12 @@ export default function HeroSection() {
             </span>
             {" "}&amp; Resource Hub
           </h1>
+
+          <p className="mb-6 max-w-2xl text-sm leading-7 text-white/70 sm:text-base">
+            {loading
+              ? "Browse the current library collection and check live availability."
+              : `${totalBorrowableCopies} copies are currently open to borrow across ${books.length} library titles.`}
+          </p>
 
           <form onSubmit={handleSearch} className="mb-8 max-w-2xl">
             <div className="relative">

@@ -1,9 +1,30 @@
-from django.contrib.auth import authenticate
+import os
+
+from django.contrib.auth import authenticate, get_user_model
 from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .models import BookCopy, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
+
+User = get_user_model()
+
+
+def split_full_name(full_name: str) -> tuple[str, str]:
+    normalized = " ".join(full_name.strip().split())
+    if not normalized:
+        return "", ""
+    first_name, _, last_name = normalized.partition(" ")
+    return first_name, last_name
+
+
+def authenticate_by_identifier(identifier: str, password: str):
+    user = authenticate(username=identifier, password=password)
+    if user is None and "@" in identifier:
+        matched_user = User.objects.filter(email__iexact=identifier).first()
+        if matched_user:
+            user = authenticate(username=matched_user.get_username(), password=password)
+    return user
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -21,10 +42,15 @@ class ResourceSerializer(serializers.ModelSerializer):
     coverColor = serializers.CharField(source="cover_color", required=False)
     publicationYear = serializers.CharField(source="publication_year", allow_blank=True, required=False)
     pageCount = serializers.IntegerField(source="page_count", allow_null=True, required=False)
+    edition = serializers.CharField(allow_blank=True, required=False)
     coverImage = serializers.URLField(source="cover_image", allow_blank=True, required=False)
     infoLink = serializers.URLField(source="info_link", allow_blank=True, required=False)
+    inventoryCount = serializers.IntegerField(write_only=True, required=False, min_value=1)
     totalCopies = serializers.ReadOnlyField(source="total_copies")
     availableCopies = serializers.ReadOnlyField(source="available_copies")
+    borrowableCopies = serializers.ReadOnlyField(source="borrowable_copies")
+    pendingBorrowRequests = serializers.ReadOnlyField(source="pending_borrow_request_count")
+    queueFull = serializers.ReadOnlyField(source="queue_full")
     availabilityStatus = serializers.ReadOnlyField(source="availability_status")
     availabilityLabel = serializers.ReadOnlyField(source="availability_label")
     expectedAvailableDate = serializers.DateField(source="expected_available_date", read_only=True)
@@ -44,6 +70,7 @@ class ResourceSerializer(serializers.ModelSerializer):
             "level",
             "author",
             "publisher",
+            "edition",
             "publicationYear",
             "pageCount",
             "isbn13",
@@ -54,8 +81,12 @@ class ResourceSerializer(serializers.ModelSerializer):
             "featured",
             "popular",
             "coverColor",
+            "inventoryCount",
             "totalCopies",
             "availableCopies",
+            "borrowableCopies",
+            "pendingBorrowRequests",
+            "queueFull",
             "availabilityStatus",
             "availabilityLabel",
             "expectedAvailableDate",
@@ -63,6 +94,14 @@ class ResourceSerializer(serializers.ModelSerializer):
             "canBorrow",
             "canReserve",
         ]
+
+    def create(self, validated_data):
+        validated_data.pop("inventoryCount", None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop("inventoryCount", None)
+        return super().update(instance, validated_data)
 
 
 class BookCopySerializer(serializers.ModelSerializer):
@@ -104,6 +143,10 @@ class LoanSerializer(serializers.ModelSerializer):
     borrowedAt = serializers.DateTimeField(source="borrowed_at", allow_null=True, required=False)
     dueDate = serializers.DateField(source="due_date", allow_null=True, required=False)
     returnedAt = serializers.DateTimeField(source="returned_at", allow_null=True, required=False)
+    returnCondition = serializers.CharField(source="return_condition", allow_blank=True, required=False)
+    returnConditionNotes = serializers.CharField(source="return_condition_notes", allow_blank=True, required=False)
+    returnEvidence = serializers.FileField(source="return_evidence", allow_empty_file=False, allow_null=True, required=False)
+    returnEvidenceName = serializers.SerializerMethodField()
 
     class Meta:
         model = Loan
@@ -128,9 +171,18 @@ class LoanSerializer(serializers.ModelSerializer):
             "borrowedAt",
             "dueDate",
             "returnedAt",
+            "returnCondition",
+            "returnConditionNotes",
+            "returnEvidence",
+            "returnEvidenceName",
             "notes",
         ]
         read_only_fields = ["bookTitle", "accessionNumber", "availabilityStatus"]
+
+    def get_returnEvidenceName(self, obj: Loan):
+        if not obj.return_evidence:
+            return None
+        return os.path.basename(obj.return_evidence.name)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -146,8 +198,21 @@ class LoanSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A phone number is required for borrowing and reservation requests.")
 
         next_status = attrs.get("status", getattr(self.instance, "status", Loan.LoanStatus.REQUESTED))
+        return_evidence = attrs.get("return_evidence", getattr(self.instance, "return_evidence", None))
         requested_from = attrs.get("requested_from")
         book_copy = None
+
+        if attrs.get("return_evidence") is not None:
+            upload = attrs["return_evidence"]
+            extension = os.path.splitext(upload.name or "")[1].lower()
+            if extension not in {".jpg", ".jpeg", ".png", ".webp", ".pdf"}:
+                raise serializers.ValidationError({
+                    "returnEvidence": "Please upload JPG, PNG, WEBP, or PDF evidence.",
+                })
+            if upload.size > 10 * 1024 * 1024:
+                raise serializers.ValidationError({
+                    "returnEvidence": "Please upload a file smaller than 10 MB.",
+                })
 
         book_copy_id = attrs.get("book_copy_id")
         if book_copy_id:
@@ -161,6 +226,21 @@ class LoanSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     "requestedFrom": f"Reservation start date cannot start before {expected_available_date.isoformat()}."
                 })
+        return_condition = attrs.get("return_condition", getattr(self.instance, "return_condition", ""))
+        current_status = getattr(self.instance, "status", None)
+        if next_status == Loan.LoanStatus.RETURNED and current_status != Loan.LoanStatus.RETURNED and not return_condition:
+            raise serializers.ValidationError({
+                "returnCondition": "Please select the condition of the returned book.",
+            })
+        if (
+            next_status == Loan.LoanStatus.RETURNED
+            and current_status != Loan.LoanStatus.RETURNED
+            and return_condition in {Loan.ReturnCondition.DAMAGED, Loan.ReturnCondition.TORN}
+            and not return_evidence
+        ):
+            raise serializers.ValidationError({
+                "returnEvidence": "Please attach photo or PDF evidence for damaged or repair-needed returns.",
+            })
         return attrs
 
     def create(self, validated_data):
@@ -271,6 +351,28 @@ class AuthSessionSerializer(serializers.Serializer):
     user = UserProfileSerializer()
 
 
+class LibraryLoginSerializer(serializers.Serializer):
+    identifier = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        identifier = attrs["identifier"].strip()
+        password = attrs["password"]
+        user = authenticate_by_identifier(identifier, password)
+
+        if user is None:
+            raise serializers.ValidationError("Invalid credentials.")
+
+        profile = ensure_user_profile(user)
+        if user.is_superuser or user.is_staff or profile.role in {UserProfile.Role.ADMIN, UserProfile.Role.LIBRARIAN}:
+            raise serializers.ValidationError("This account uses the library admin portal.")
+        token, _ = Token.objects.get_or_create(user=user)
+        attrs["user"] = user
+        attrs["profile"] = profile
+        attrs["token"] = token
+        return attrs
+
+
 class AdminLoginSerializer(serializers.Serializer):
     identifier = serializers.CharField()
     password = serializers.CharField(write_only=True)
@@ -278,15 +380,7 @@ class AdminLoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         identifier = attrs["identifier"].strip()
         password = attrs["password"]
-
-        user = authenticate(username=identifier, password=password)
-        if user is None and "@" in identifier:
-            from django.contrib.auth import get_user_model
-
-            User = get_user_model()
-            matched_user = User.objects.filter(email__iexact=identifier).first()
-            if matched_user:
-                user = authenticate(username=matched_user.get_username(), password=password)
+        user = authenticate_by_identifier(identifier, password)
 
         if user is None:
             raise serializers.ValidationError("Invalid credentials.")
@@ -300,6 +394,83 @@ class AdminLoginSerializer(serializers.Serializer):
         attrs["profile"] = profile
         attrs["token"] = token
         return attrs
+
+
+class StudentRegistrationSerializer(serializers.Serializer):
+    fullName = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8, max_length=128)
+    phoneNumber = serializers.CharField(source="phone_number", max_length=30, allow_blank=True, required=False)
+    studentIdCode = serializers.CharField(source="student_id_code", max_length=40, allow_blank=True, required=False)
+
+    def validate_email(self, value: str) -> str:
+        normalized = value.strip().lower()
+        if User.objects.filter(email__iexact=normalized).exists():
+            raise serializers.ValidationError("An account with this email already exists.")
+        if User.objects.filter(username__iexact=normalized).exists():
+            raise serializers.ValidationError("This email address is already being used as a username.")
+        return normalized
+
+    def validate_fullName(self, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if len(normalized) < 3:
+            raise serializers.ValidationError("Please enter your full name.")
+        return normalized
+
+    def create(self, validated_data):
+        full_name = validated_data["fullName"]
+        email = validated_data["email"]
+        phone_number = validated_data.get("phone_number", "")
+        student_id_code = validated_data.get("student_id_code", "")
+        password = validated_data["password"]
+        first_name, last_name = split_full_name(full_name)
+
+        user = User.objects.create_user(
+            username=email,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        profile = ensure_user_profile(user)
+        profile.role = UserProfile.Role.STUDENT
+        profile.phone_number = phone_number
+        profile.student_id_code = student_id_code
+        profile.save(update_fields=["role", "phone_number", "student_id_code", "updated_at"])
+        return user
+
+
+class UserProfileUpdateSerializer(serializers.Serializer):
+    fullName = serializers.CharField(max_length=150)
+    phoneNumber = serializers.CharField(source="phone_number", max_length=30, allow_blank=True, required=False)
+    studentIdCode = serializers.CharField(source="student_id_code", max_length=40, allow_blank=True, required=False)
+
+    def validate_fullName(self, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if len(normalized) < 3:
+            raise serializers.ValidationError("Please enter your full name.")
+        return normalized
+
+    def update(self, instance: UserProfile, validated_data):
+        full_name = validated_data.get("fullName", instance.user.get_full_name() or instance.user.get_username())
+        first_name, last_name = split_full_name(full_name)
+
+        user = instance.user
+        user.first_name = first_name
+        user.last_name = last_name
+        user.save(update_fields=["first_name", "last_name"])
+
+        instance.phone_number = validated_data.get("phone_number", instance.phone_number)
+        instance.student_id_code = validated_data.get("student_id_code", instance.student_id_code)
+        instance.save(update_fields=["phone_number", "student_id_code", "updated_at"])
+        return instance
+
+
+class StudentDashboardSerializer(serializers.Serializer):
+    user = UserProfileSerializer()
+    loans = LoanSerializer(many=True)
+    requests = BookRequestSerializer(many=True)
+    supportMessages = SupportMessageSerializer(many=True)
 
 
 class LoanEmailSerializer(serializers.Serializer):

@@ -27,14 +27,15 @@ export default function BooksManager() {
       const matchSearch =
         !search ||
         b.title.toLowerCase().includes(search.toLowerCase()) ||
-        b.author.toLowerCase().includes(search.toLowerCase());
+        b.author.toLowerCase().includes(search.toLowerCase()) ||
+        (b.edition ?? "").toLowerCase().includes(search.toLowerCase());
       const matchCat = categoryFilter === "All" || b.category === categoryFilter;
       return matchSearch && matchCat;
     });
   }, [books, search, categoryFilter]);
 
   return (
-    <div className="max-w-7xl space-y-6">
+    <div className="w-full space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>Books</h2>
@@ -85,6 +86,7 @@ export default function BooksManager() {
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 <th className="text-left px-5 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Book</th>
                 <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Category</th>
+                <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Copies</th>
                 <th className="px-4 py-3.5" />
               </tr>
             </thead>
@@ -104,7 +106,10 @@ export default function BooksManager() {
                         </div>
                         <div>
                           <p className="font-semibold text-gray-900 text-sm line-clamp-1">{book.title}</p>
-                          <p className="text-gray-400 text-xs">by {book.author}</p>
+                          <p className="text-gray-400 text-xs">
+                            by {book.author}
+                            {book.edition ? ` • ${book.edition}` : ""}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -112,6 +117,16 @@ export default function BooksManager() {
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${color}12`, color }}>
                         {book.category}
                       </span>
+                    </td>
+                    <td className="px-4 py-4 hidden lg:table-cell">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center rounded-full bg-[#F3E9DA] px-2.5 py-1 text-xs font-semibold text-[#442F73]">
+                          {book.totalCopies ?? 0} total
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {book.availableCopies ?? 0} available
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-1 justify-end">

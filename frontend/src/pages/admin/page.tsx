@@ -14,13 +14,14 @@ const NAV = [
   { id: "books", label: "Books & Resources", icon: "ri-book-shelf-line" },
   { id: "loans", label: "Loans & Reservations", icon: "ri-bookmark-3-line" },
   { id: "history", label: "History", icon: "ri-history-line" },
-  { id: "requests", label: "New Book Requests", icon: "ri-inbox-line", badge: true },
+  { id: "requests", label: "Book Suggestions", icon: "ri-inbox-line", badge: true },
   { id: "support", label: "Support Inbox", icon: "ri-mail-unread-line", badge: true },
 ];
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -69,12 +70,16 @@ export default function AdminPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (authSubmitting) return;
+    setAuthSubmitting(true);
     try {
       await api.loginAdmin(identifier, password);
       setAuthed(true);
       setError("");
     } catch {
       setError("Incorrect password. Please try again.");
+    } finally {
+      setAuthSubmitting(false);
     }
   };
 
@@ -85,7 +90,7 @@ export default function AdminPage() {
 
   const adminContent = adminLoading && (tab === "loans" || tab === "history" || tab === "requests")
     ? (
-      <div className="max-w-5xl space-y-6">
+      <div className="w-full space-y-6">
         <div>
           <div className="h-7 w-56 rounded bg-gray-200 animate-pulse mb-2" />
           <div className="h-4 w-72 rounded bg-gray-100 animate-pulse" />
@@ -149,8 +154,9 @@ export default function AdminPage() {
                     type="text"
                     value={identifier}
                     onChange={(e) => { setIdentifier(e.target.value); setError(""); }}
+                    disabled={authSubmitting}
                     placeholder="Use your library admin email"
-                    className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
+                    className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                   />
                 </div>
               </div>
@@ -162,8 +168,9 @@ export default function AdminPage() {
                     type="password"
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                    disabled={authSubmitting}
                     placeholder="Enter your library admin password"
-                    className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
+                    className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                   />
                 </div>
                 {error && (
@@ -174,9 +181,17 @@ export default function AdminPage() {
               </div>
               <button
                 type="submit"
-                className="w-full py-3 bg-[#442F73] hover:bg-[#241453] text-white font-semibold text-sm rounded-xl transition-colors duration-200 cursor-pointer"
+                disabled={authSubmitting}
+                className="w-full py-3 bg-[#442F73] hover:bg-[#241453] text-white font-semibold text-sm rounded-xl transition-colors duration-200 cursor-pointer disabled:cursor-not-allowed disabled:bg-[#442F73]/75 disabled:text-white/90"
               >
-                Sign In to Library Admin
+                {authSubmitting ? (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <i className="ri-loader-4-line animate-spin" />
+                    Signing in...
+                  </span>
+                ) : (
+                  "Sign In to Library Admin"
+                )}
               </button>
             </form>
 
@@ -259,64 +274,68 @@ export default function AdminPage() {
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="bg-white border-b border-gray-200 px-4 md:px-8 h-14 flex items-center justify-between flex-none">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 cursor-pointer"
-            >
-              <i className="ri-menu-line text-gray-600" />
-            </button>
-            <div>
-              <p className="font-semibold text-gray-900 text-sm">
-                {NAV.find((n) => n.id === tab)?.label}
-              </p>
+        <header className="bg-white border-b border-gray-200 px-6 md:px-12 xl:px-16 h-14 flex-none">
+          <div className="mx-auto flex h-full w-full max-w-[1400px] items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 cursor-pointer"
+              >
+                <i className="ri-menu-line text-gray-600" />
+              </button>
+              <div>
+                <p className="text-base font-bold text-[#442F73] md:text-lg">
+                  {NAV.find((n) => n.id === tab)?.label}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2 md:gap-3">
-            {pendingCount > 0 && (
-              <button
-                onClick={() => setTab("requests")}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold rounded-full cursor-pointer hover:bg-amber-100 transition-colors whitespace-nowrap"
+            <div className="flex items-center gap-2 md:gap-3">
+              {pendingCount > 0 && (
+                <button
+                  onClick={() => setTab("requests")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold rounded-full cursor-pointer hover:bg-amber-100 transition-colors whitespace-nowrap"
+                >
+                  <i className="ri-notification-3-line" />
+                  {pendingCount} pending request{pendingCount > 1 ? "s" : ""}
+                </button>
+              )}
+              {newSupportCount > 0 && (
+                <button
+                  onClick={() => setTab("support")}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 text-violet-700 text-xs font-semibold rounded-full cursor-pointer hover:bg-violet-100 transition-colors whitespace-nowrap"
+                >
+                  <i className="ri-mail-line" />
+                  {newSupportCount} new support message{newSupportCount > 1 ? "s" : ""}
+                </button>
+              )}
+              {activeLoanCount > 0 && (
+                <button
+                  onClick={() => setTab("loans")}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold rounded-full cursor-pointer hover:bg-sky-100 transition-colors whitespace-nowrap"
+                >
+                  <i className="ri-bookmark-line" />
+                  {activeLoanCount} active circulation
+                </button>
+              )}
+              <Link
+                to="/"
+                className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm transition-all duration-200 hover:border-violet-300 hover:bg-violet-100 hover:text-violet-800 whitespace-nowrap"
               >
-                <i className="ri-notification-3-line" />
-                {pendingCount} pending request{pendingCount > 1 ? "s" : ""}
-              </button>
-            )}
-            {newSupportCount > 0 && (
-              <button
-                onClick={() => setTab("support")}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 text-violet-700 text-xs font-semibold rounded-full cursor-pointer hover:bg-violet-100 transition-colors whitespace-nowrap"
-              >
-                <i className="ri-mail-line" />
-                {newSupportCount} new support message{newSupportCount > 1 ? "s" : ""}
-              </button>
-            )}
-            {activeLoanCount > 0 && (
-              <button
-                onClick={() => setTab("loans")}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold rounded-full cursor-pointer hover:bg-sky-100 transition-colors whitespace-nowrap"
-              >
-                <i className="ri-bookmark-line" />
-                {activeLoanCount} active circulation
-              </button>
-            )}
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm transition-all duration-200 hover:border-violet-300 hover:bg-violet-100 hover:text-violet-800 whitespace-nowrap"
-            >
-              <i className="ri-external-link-line text-sm" />
-              <span className="hidden sm:inline">View Library Site</span>
-            </Link>
-            <div className="w-8 h-8 rounded-full bg-[#442F73] flex items-center justify-center">
-              <i className="ri-user-line text-white text-xs" />
+                <i className="ri-external-link-line text-sm" />
+                <span className="hidden sm:inline">View Library Site</span>
+              </Link>
+              <div className="w-8 h-8 rounded-full bg-[#442F73] flex items-center justify-center">
+                <i className="ri-user-line text-white text-xs" />
+              </div>
             </div>
           </div>
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-auto p-4 md:p-8">
-          {adminContent}
+        <main className="flex-1 overflow-auto px-6 py-4 md:px-12 md:py-8 xl:px-16">
+          <div className="mx-auto w-full max-w-[1400px]">
+            {adminContent}
+          </div>
         </main>
       </div>
     </div>

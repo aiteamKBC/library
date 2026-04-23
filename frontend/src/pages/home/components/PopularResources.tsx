@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { formatResourceAvailabilityLine, getResourceQueueMetrics } from "../../../lib/resourceAvailability";
 
 export default function PopularResources() {
   const { books, categories, loading } = useAdminData();
@@ -53,6 +54,7 @@ export default function PopularResources() {
               );
             }
             const color = categoryColorMap[resource.category] ?? "#CEA869";
+            const { canBorrow, queueFull } = getResourceQueueMetrics(resource);
 
             return (
               <Link
@@ -83,6 +85,23 @@ export default function PopularResources() {
                       {resource.title}
                     </h3>
                     <p className="text-white/45 text-sm mt-1">{resource.author}</p>
+                    {resource.edition && (
+                      <span className="mt-2 inline-flex rounded-full border border-white/10 bg-white/8 px-2.5 py-1 text-[10px] font-semibold text-white/70">
+                        {resource.edition}
+                      </span>
+                    )}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                        queueFull
+                          ? "bg-amber-500/15 text-amber-100"
+                          : canBorrow
+                          ? "bg-emerald-500/15 text-emerald-100"
+                          : "bg-amber-500/15 text-amber-100"
+                      }`}>
+                        <i className={canBorrow ? "ri-checkbox-circle-line" : "ri-time-line"} />
+                        {formatResourceAvailabilityLine(resource)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </Link>

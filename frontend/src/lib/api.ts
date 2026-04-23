@@ -1,4 +1,15 @@
-import type { AuthSession, AuthUser, BookRequest, Category, Loan, Resource, SupportMessage } from "../types/library";
+import type {
+  AuthSession,
+  AuthUser,
+  BookRequest,
+  Category,
+  Loan,
+  Resource,
+  StudentDashboard,
+  StudentProfileUpdatePayload,
+  StudentRegistrationPayload,
+  SupportMessage,
+} from "../types/library";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") || "/api";
 const GET_CACHE_TTL_MS = 30_000;
@@ -10,7 +21,7 @@ type CacheEntry = {
 };
 
 type RequestOptions = {
-  auth?: "required" | "none";
+  auth?: "required" | "none" | "optional";
 };
 
 const responseCache = new Map<string, CacheEntry>();
@@ -24,12 +35,20 @@ function getAuthToken() {
   return localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
+export function hasStoredAuthToken() {
+  return Boolean(getAuthToken());
+}
+
 function setAuthToken(token: string | null) {
   if (!token) {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     return;
   }
   localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+export function clearStoredAuthToken() {
+  setAuthToken(null);
 }
 
 function isGetRequest(init?: RequestInit) {
@@ -75,13 +94,19 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
 
   const promise = (async () => {
     const authToken = getAuthToken();
+    const headers = new Headers(init?.headers ?? {});
+    const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+
+    if (!isFormData && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    if (authMode !== "none" && authToken && !headers.has("Authorization")) {
+      headers.set("Authorization", `Token ${authToken}`);
+    }
+
     const response = await fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(authMode !== "none" && authToken ? { Authorization: `Token ${authToken}` } : {}),
-        ...(init?.headers ?? {}),
-      },
       ...init,
+      headers,
     });
 
     if (!response.ok) {
@@ -127,7 +152,33 @@ export const api = {
     setAuthToken(session.token);
     return session;
   },
+  loginStudent: async (identifier: string, password: string) => {
+    const session = await request<AuthSession>("/auth/student-login/", {
+      method: "POST",
+      body: JSON.stringify({ identifier, password }),
+    }, { auth: "none" });
+    setAuthToken(session.token);
+    return session;
+  },
+  registerStudent: async (payload: StudentRegistrationPayload) => {
+    const session = await request<AuthSession>("/auth/register/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, { auth: "none" });
+    setAuthToken(session.token);
+    return session;
+  },
   getAuthMe: () => request<{ user: AuthUser }>("/auth/me/"),
+  getStudentDashboard: () => request<StudentDashboard>("/auth/dashboard/"),
+  updateMyProfile: (payload: StudentProfileUpdatePayload) =>
+    request<{ user: AuthUser }>("/auth/me/", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }).then((response) => {
+      invalidateCache("/auth/me/");
+      invalidateCache("/auth/dashboard/");
+      return response;
+    }),
   logoutAdmin: async () => {
     try {
       await request<void>("/auth/logout/", {
@@ -195,8 +246,9 @@ export const api = {
     const created = await request<BookRequest>("/requests/", {
       method: "POST",
       body: JSON.stringify(payload),
-    }, { auth: "none" });
+    }, { auth: "optional" });
     invalidateCache("/requests/");
+    invalidateCache("/auth/dashboard/");
     return created;
   },
   updateRequest: async (id: string, payload: Partial<BookRequest>) => {
@@ -205,6 +257,15 @@ export const api = {
       body: JSON.stringify(payload),
     });
     invalidateCache("/requests/");
+    return updated;
+  },
+  cancelStudentRequest: async (id: string) => {
+    const updated = await request<BookRequest>(`/requests/${id}/student-cancel/`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    invalidateCache("/requests/");
+    invalidateCache("/auth/dashboard/");
     return updated;
   },
   deleteRequest: async (id: string) => {
@@ -218,18 +279,44 @@ export const api = {
     const created = await request<Loan>("/loans/", {
       method: "POST",
       body: JSON.stringify(payload),
-    }, { auth: "none" });
+    }, { auth: "required" });
     invalidateCache("/loans/");
     invalidateCache("/resources/");
+    invalidateCache("/auth/dashboard/");
     return created;
   },
-  updateLoan: async (id: string, payload: Partial<Loan>) => {
-    const updated = await request<Loan>(`/loans/${id}/`, {
+  updateLoan: async (id: string, payload: Partial<Loan>, options?: { returnEvidenceFile?: File | null }) => {
+    const evidenceFile = options?.returnEvidenceFile ?? null;
+
+    const updated = await request<Loan>(`/loans/${id}/`, evidenceFile ? {
+      method: "PATCH",
+      body: (() => {
+        const formData = new FormData();
+        Object.entries(payload).forEach(([key, value]) => {
+          if (value === undefined || value === null) {
+            return;
+          }
+          formData.append(key, String(value));
+        });
+        formData.append("returnEvidence", evidenceFile);
+        return formData;
+      })(),
+    } : {
       method: "PATCH",
       body: JSON.stringify(payload),
     });
     invalidateCache("/loans/");
     invalidateCache("/resources/");
+    return updated;
+  },
+  cancelStudentLoan: async (id: string) => {
+    const updated = await request<Loan>(`/loans/${id}/student-cancel/`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    invalidateCache("/loans/");
+    invalidateCache("/resources/");
+    invalidateCache("/auth/dashboard/");
     return updated;
   },
   approveLoan: async (id: string) => {
@@ -253,8 +340,9 @@ export const api = {
     const created = await request<SupportMessage>("/support-messages/", {
       method: "POST",
       body: JSON.stringify(payload),
-    }, { auth: "none" });
+    }, { auth: "optional" });
     invalidateCache("/support-messages/");
+    invalidateCache("/auth/dashboard/");
     return created;
   },
   updateSupportMessage: async (id: string, payload: Partial<SupportMessage>) => {

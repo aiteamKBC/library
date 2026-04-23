@@ -58,6 +58,7 @@ export default [
         ...autoImportGlobals,
         NodeJS: 'readonly',
         JSX: 'readonly',
+        RequestInit: 'readonly',
         IdleRequestCallback: 'readonly',
         __BASE_PATH__: 'readonly',
         __IS_PREVIEW__: 'readonly',
@@ -103,4 +104,3 @@ export default [
     },
   },
 ]
-

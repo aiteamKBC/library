@@ -1,10 +1,12 @@
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { useLibrarySession } from "../../../hooks/useLibrarySession";
 
 type FieldName = "name" | "email" | "subject" | "message" | "course";
 
 export default function LibrarianContact() {
   const { addSupportMessage } = useAdminData();
+  const { user } = useLibrarySession();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -15,6 +17,15 @@ export default function LibrarianContact() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [charCount, setCharCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    setForm((prev) => ({
+      ...prev,
+      name: prev.name || user.fullName || "",
+      email: prev.email || user.email || "",
+    }));
+  }, [user]);
 
   const handleChange = (field: FieldName, value: string) => {
     if (field === "message") {

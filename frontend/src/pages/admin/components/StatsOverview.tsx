@@ -8,8 +8,6 @@ export default function StatsOverview({ onNavigate }: Props) {
   const { books, loans, supportMessages, loading } = useAdminData();
 
   const categories = [...new Set(books.map((book) => book.category))];
-  const authors = [...new Set(books.map((book) => book.author))];
-  const uncategorisedCount = books.filter((book) => !book.categoryId || !book.category).length;
   const activeLoansCount = loans.filter((loan) => ["requested", "borrowed", "reserved", "overdue"].includes(loan.status)).length;
   const openSupportCount = supportMessages.filter((message) => message.status !== "resolved").length;
 
@@ -30,7 +28,7 @@ export default function StatsOverview({ onNavigate }: Props) {
   const maxCount = categoryBreakdown[0]?.count ?? 1;
 
   return (
-    <div className="space-y-8 max-w-6xl">
+    <div className="w-full space-y-8">
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
           Library Overview
@@ -65,65 +63,48 @@ export default function StatsOverview({ onNavigate }: Props) {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <h3 className="font-bold text-gray-900 text-sm mb-5">Books by Category</h3>
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div key={index}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="h-4 w-32 rounded bg-gray-100" />
-                    <div className="h-4 w-6 rounded bg-gray-100" />
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden" />
-                </div>
-              ))}
-            </div>
-          ) : categoryBreakdown.length === 0 ? (
-            <p className="text-sm text-gray-400">No books available yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {categoryBreakdown.map((category) => (
-                <div key={category.name}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-gray-700 truncate flex-1 mr-3">{category.name}</span>
-                    <span className="text-xs font-bold text-gray-500 flex-none">{category.count}</span>
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-[#442F73] rounded-full transition-all duration-500"
-                      style={{ width: `${(category.count / maxCount) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h3 className="font-bold text-gray-900 text-sm">Books by Category</h3>
+          <button
+            onClick={() => onNavigate("books")}
+            className="text-xs text-[#442F73] font-semibold hover:underline cursor-pointer"
+          >
+            Manage books
+          </button>
         </div>
-
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="font-bold text-gray-900 text-sm">Current Scope</h3>
-            <button
-              onClick={() => onNavigate("books")}
-              className="text-xs text-[#442F73] font-semibold hover:underline cursor-pointer"
-            >
-              Manage books
-            </button>
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index}>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <div className="h-4 w-32 rounded bg-gray-100" />
+                  <div className="h-4 w-6 rounded bg-gray-100" />
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-gray-100" />
+              </div>
+            ))}
           </div>
-          <div className="space-y-3 text-sm text-gray-600">
-            <div className="p-4 bg-gray-50 rounded-xl">
-              The admin overview now reads only from the real library books and their category assignments.
-            </div>
-            <div className="p-4 bg-gray-50 rounded-xl">
-              Student requests stay empty unless they are submitted through the site or returned from the backend.
-            </div>
-            <div className="p-4 bg-gray-50 rounded-xl">
-              Support page messages now appear in the Support Inbox for the library team to triage and resolve.
-            </div>
+        ) : categoryBreakdown.length === 0 ? (
+          <p className="text-sm text-gray-400">No books available yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {categoryBreakdown.map((category) => (
+              <div key={category.name}>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="mr-3 flex-1 truncate text-sm text-gray-700">{category.name}</span>
+                  <span className="flex-none text-xs font-bold text-gray-500">{category.count}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                  <div
+                    className="h-full rounded-full bg-[#442F73] transition-all duration-500"
+                    style={{ width: `${(category.count / maxCount) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

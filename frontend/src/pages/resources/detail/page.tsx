@@ -5,12 +5,15 @@ import Footer from "../../../components/feature/Footer";
 import ResourceSidebar from "./components/ResourceSidebar";
 import RelatedResources from "./components/RelatedResources";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { useLibrarySession } from "../../../hooks/useLibrarySession";
 import RequestModal from "../components/RequestModal";
+import { getResourceQueueMetrics } from "../../../lib/resourceAvailability";
 
 export default function ResourceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { books, categories, loading } = useAdminData();
+  const { user } = useLibrarySession();
   const [requestOpen, setRequestOpen] = useState(false);
 
   const resource = useMemo(() => books.find((r) => r.id === id), [books, id]);
@@ -24,6 +27,18 @@ export default function ResourceDetailPage() {
     if (!resource) {
       return;
     }
+
+    const requiresAccount = ["available", "borrowed", "reserved"].includes(resource.availabilityStatus ?? "");
+    if (requiresAccount && !user) {
+      navigate("/account", {
+        state: {
+          redirectTo: `/resources/${resource.id}`,
+          intentMessage: "Sign in or create an account to borrow books and receive availability alerts.",
+        },
+      });
+      return;
+    }
+
     setRequestOpen(true);
   };
 
@@ -125,6 +140,7 @@ export default function ResourceDetailPage() {
   }
 
   const color = categories.find((category) => category.name === resource.category)?.color ?? "#442F73";
+  const resourceMetrics = getResourceQueueMetrics(resource);
 
   return (
     <div className="min-h-screen bg-white">
@@ -226,6 +242,12 @@ export default function ResourceDetailPage() {
                       <p className="font-semibold text-[#241453] leading-snug">{resource.publisher}</p>
                     </div>
                   )}
+                  {resource.edition && (
+                    <div className="rounded-xl bg-[#F9F4EC] border border-[#F1E3CB] px-4 py-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">Edition</p>
+                      <p className="font-semibold text-[#241453] leading-snug">{resource.edition}</p>
+                    </div>
+                  )}
                   {resource.publicationYear && (
                     <div className="rounded-xl bg-[#F9F4EC] border border-[#F1E3CB] px-4 py-3">
                       <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">Published</p>
@@ -259,7 +281,7 @@ export default function ResourceDetailPage() {
           initialCategory={resource.category}
           expectedAvailableDate={resource.expectedAvailableDate}
           availabilityNote={resource.availabilityNote}
-          mode={resource.availabilityStatus === "available" ? "borrow" : "notify"}
+          mode={resourceMetrics.canBorrow ? "borrow" : "notify"}
         />
       )}
 

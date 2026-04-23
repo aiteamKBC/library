@@ -11,6 +11,15 @@ import {
 import { api } from "../lib/api";
 import type { BookRequest, Category, Loan, Resource, SupportMessage } from "../types/library";
 
+const STATUS_AFFECTS_AVAILABILITY = new Set([
+  "borrowed",
+  "returned",
+  "overdue",
+  "cancelled",
+  "reserved",
+  "approved",
+]);
+
 interface AdminDataContextValue {
   categories: Category[];
   books: Resource[];
@@ -33,7 +42,7 @@ interface AdminDataContextValue {
   deleteRequest: (id: string) => Promise<void>;
   addLoan: (loan: Partial<Loan>) => Promise<Loan>;
   approveLoan: (id: string) => Promise<Loan>;
-  updateLoan: (id: string, updates: Partial<Loan>) => Promise<void>;
+  updateLoan: (id: string, updates: Partial<Loan>, options?: { returnEvidenceFile?: File | null }) => Promise<void>;
   deleteLoan: (id: string) => Promise<void>;
   bulkDeleteLoans: (ids: string[]) => Promise<void>;
   addSupportMessage: (message: Omit<SupportMessage, "id" | "submittedAt" | "status" | "resolvedAt" | "resolvedById" | "requesterId">) => Promise<void>;
@@ -118,7 +127,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     const created = await api.createResource(book);
     setBooks((prev) => [created, ...prev]);
     return created;
-  }, [usingFallbackData]);
+  }, []);
 
   const addCategory = useCallback(async (category: Pick<Category, "name"> & Partial<Pick<Category, "description" | "color" | "icon" | "slug">>) => {
     const created = await api.createCategory(category);
@@ -177,10 +186,8 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     return approved;
   }, [reloadLoansAndResources]);
 
-  const STATUS_AFFECTS_AVAILABILITY = new Set(["borrowed", "returned", "overdue", "cancelled", "reserved", "approved"]);
-
-  const updateLoan = useCallback(async (id: string, updates: Partial<Loan>) => {
-    const updated = await api.updateLoan(id, updates);
+  const updateLoan = useCallback(async (id: string, updates: Partial<Loan>, options?: { returnEvidenceFile?: File | null }) => {
+    const updated = await api.updateLoan(id, updates, options);
     const requiresLoanRefresh = updates.status === "returned";
 
     if (requiresLoanRefresh) {
@@ -261,6 +268,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     addBook,
     addLoan,
     addRequest,
+    approveLoan,
     adminLoading,
     adminLoaded,
     categories,

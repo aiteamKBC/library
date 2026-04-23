@@ -3,9 +3,10 @@ from datetime import datetime
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from django.db.models.deletion import ProtectedError
 from urllib.request import Request, urlopen
 from django.utils.text import slugify
@@ -19,18 +20,22 @@ from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token
 from django.utils import timezone
 
-from .models import BookCopy, BookRequest, Category, Loan, Resource, SupportMessage, ensure_user_profile
-from .permissions import IsLibraryStaff
+from .models import BookCopy, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
+from .permissions import IsLibraryStaff, IsLibraryStaffOrApiKey
 from .serializers import (
     AdminLoginSerializer,
     BookCopySerializer,
     BookRequestSerializer,
     CategorySerializer,
+    LibraryLoginSerializer,
     LoanSerializer,
     LoanEmailSerializer,
     ResourceSerializer,
+    StudentDashboardSerializer,
+    StudentRegistrationSerializer,
     SupportMessageSerializer,
     UserProfileSerializer,
+    UserProfileUpdateSerializer,
 )
 
 
@@ -68,6 +73,57 @@ def send_library_webhook(payload: dict[str, object]) -> bool:
     except Exception:
         # External webhook failures should not block the core library action.
         return False
+
+
+def current_authenticated_user(request):
+    user = getattr(request, "user", None)
+    if user and user.is_authenticated:
+        return user
+    return None
+
+
+def populate_identity_from_account(
+    request,
+    payload,
+    *,
+    relation_key: str,
+    name_key: str,
+    email_key: str,
+    phone_key: str | None = None,
+    student_id_key: str | None = None,
+):
+    user = current_authenticated_user(request)
+    if user is None:
+        return
+
+    profile = ensure_user_profile(user)
+    payload[relation_key] = user.pk
+
+    if not payload.get(name_key):
+        payload[name_key] = user.get_full_name() or user.get_username()
+    if not payload.get(email_key):
+        payload[email_key] = user.email
+    if phone_key and not payload.get(phone_key):
+        payload[phone_key] = profile.phone_number
+    if student_id_key and not payload.get(student_id_key):
+        payload[student_id_key] = profile.student_id_code
+
+
+def filter_for_current_account(queryset, *, user, relation_field: str, email_field: str):
+    email = (user.email or "").strip()
+    filters = Q(**{relation_field: user})
+    if email:
+        filters |= Q(**{f"{email_field}__iexact": email})
+    return queryset.filter(filters).distinct()
+
+
+def is_owned_by_current_account(*, user, related_user_id: int | None, email_value: str | None) -> bool:
+    if related_user_id and related_user_id == getattr(user, "id", None):
+        return True
+
+    current_email = (getattr(user, "email", "") or "").strip().lower()
+    target_email = (email_value or "").strip().lower()
+    return bool(current_email and target_email and current_email == target_email)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -125,7 +181,16 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
 
 class ResourceViewSet(viewsets.ModelViewSet):
-    queryset = Resource.objects.select_related("category").prefetch_related(
+    queryset = Resource.objects.select_related("category").annotate(
+        pending_borrow_request_total=Count(
+            "copies__loans",
+            filter=Q(
+                copies__loans__status=Loan.LoanStatus.REQUESTED,
+                copies__loans__loan_type=Loan.LoanType.BORROW,
+            ),
+            distinct=True,
+        )
+    ).prefetch_related(
         Prefetch(
             "copies",
             queryset=BookCopy.objects.prefetch_related(
@@ -151,28 +216,44 @@ class ResourceViewSet(viewsets.ModelViewSet):
         cache.set(CACHE_KEY_RESOURCES, response.data, CACHE_TTL)
         return response
 
-    def perform_create(self, serializer):
-        resource = serializer.save()
-        BookCopy.objects.get_or_create(
-            resource=resource,
-            accession_number=f"{resource.id}-001",
-        )
-
     def create(self, request, *args, **kwargs):
         payload = request.data.copy()
         payload["id"] = payload.get("id") or f"r{int(datetime.now().timestamp() * 1000)}"
         payload["dateAdded"] = payload.get("dateAdded") or datetime.now().date().isoformat()
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        inventory_count = serializer.validated_data.get("inventoryCount")
+
+        try:
+            with transaction.atomic():
+                resource = serializer.save()
+                resource.sync_copy_inventory(inventory_count)
+        except DjangoValidationError as exc:
+            raise ValidationError({"inventoryCount": exc.messages}) from exc
+
         bust_resources_cache()
         headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        response_serializer = self.get_serializer(resource)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def update(self, request, *args, **kwargs):
-        response = super().update(request, *args, **kwargs)
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        inventory_count = serializer.validated_data.get("inventoryCount")
+
+        try:
+            with transaction.atomic():
+                resource = serializer.save()
+                if inventory_count is not None:
+                    resource.sync_copy_inventory(inventory_count)
+        except DjangoValidationError as exc:
+            raise ValidationError({"inventoryCount": exc.messages}) from exc
+
         bust_resources_cache()
-        return response
+        response_serializer = self.get_serializer(resource)
+        return Response(response_serializer.data)
 
     def destroy(self, request, *args, **kwargs):
         response = super().destroy(request, *args, **kwargs)
@@ -190,13 +271,36 @@ class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.select_related("borrower", "approved_by", "book_copy", "book_copy__resource")
     serializer_class = LoanSerializer
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status=status_param)
+        due_before = self.request.query_params.get("due_before")
+        if due_before:
+            qs = qs.filter(due_date__lte=due_before)
+        return qs
+
     def get_permissions(self):
         if self.action == "create":
-            return [AllowAny()]
+            return [IsAuthenticated()]
+        if self.action == "student_cancel":
+            return [IsAuthenticated()]
+        if self.action in {"list", "process_overdue"}:
+            return [IsLibraryStaffOrApiKey()]
         return [IsLibraryStaff()]
 
     def create(self, request, *args, **kwargs):
         payload = request.data.copy()
+        populate_identity_from_account(
+            request,
+            payload,
+            relation_key="borrowerId",
+            name_key="borrowerName",
+            email_key="borrowerEmail",
+            phone_key="borrowerPhone",
+            student_id_key="borrowerStudentId",
+        )
         now = timezone.now()
         payload["id"] = payload.get("id") or f"loan{int(now.timestamp() * 1000)}"
         payload["requestedAt"] = payload.get("requestedAt") or now.isoformat()
@@ -209,18 +313,27 @@ class LoanViewSet(viewsets.ModelViewSet):
                 raise ValidationError({"resourceId": "Resource not found."})
 
             requested_status = payload.get("status") or Loan.LoanStatus.REQUESTED
+            requested_loan_type = payload.get("loanType") or payload.get("loan_type") or Loan.LoanType.BORROW
+            if requested_status == Loan.LoanStatus.REQUESTED and requested_loan_type == Loan.LoanType.BORROW and not resource.can_borrow:
+                if resource.queue_full:
+                    raise ValidationError({
+                        "resourceId": "All currently available copies are already covered by pending requests. Please register for notify instead."
+                    })
+                raise ValidationError({
+                    "resourceId": "No copies are currently open to borrow. Please register for notify instead."
+                })
             # Prefer attaching to an available copy. If none available and the
             # client is creating a generic request (`requested`) we still allow
             # creating a pending request attached to any usable copy so the
             # borrower can join the waiting list.
-            target_copy = resource.copies.filter(status=BookCopy.CopyStatus.AVAILABLE).first()
+            target_copy = resource.first_available_copy()
 
             if not target_copy and requested_status == Loan.LoanStatus.REQUESTED:
                 # pick any copy that isn't lost/maintenance to attach the request
-                target_copy = resource.copies.exclude(status__in=[BookCopy.CopyStatus.LOST, BookCopy.CopyStatus.MAINTENANCE]).first()
+                target_copy = resource.first_usable_copy()
 
             if requested_status == Loan.LoanStatus.RESERVED:
-                target_copy = resource.copies.exclude(status__in=[BookCopy.CopyStatus.LOST, BookCopy.CopyStatus.MAINTENANCE]).first()
+                target_copy = resource.first_usable_copy()
                 if not target_copy or resource.availability_status != BookCopy.CopyStatus.BORROWED:
                     raise ValidationError({"resourceId": "Only borrowed books can be reserved."})
                 requested_from = payload.get("requestedFrom")
@@ -321,6 +434,8 @@ class LoanViewSet(viewsets.ModelViewSet):
                     "phoneNumber": updated_loan.borrower_phone,
                     "bookTitle": updated_loan.book_copy.resource.title,
                     "returnedAt": updated_loan.returned_at.isoformat() if updated_loan.returned_at else now.isoformat(),
+                    "returnCondition": updated_loan.return_condition,
+                    "returnConditionNotes": updated_loan.return_condition_notes,
                     "loanId": updated_loan.id,
                     "copyNumber": updated_loan.book_copy.accession_number,
                 }
@@ -411,25 +526,94 @@ class LoanViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.data)
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated], url_path="student-cancel")
+    def student_cancel(self, request, pk=None):
+        loan = self.get_queryset().filter(pk=pk).first()
+
+        if loan is None:
+            raise ValidationError({"detail": "This request could not be found."})
+
+        if not is_owned_by_current_account(
+            user=request.user,
+            related_user_id=loan.borrower_id,
+            email_value=loan.borrower_email,
+        ):
+            raise ValidationError({"detail": "You can only manage requests linked to your own account."})
+
+        if loan.status != Loan.LoanStatus.REQUESTED:
+            raise ValidationError({"status": "Only pending requests or alerts can be cancelled from your account."})
+
+        loan.status = Loan.LoanStatus.CANCELLED
+        loan.save(update_fields=["status"])
+        bust_resources_cache()
+
+        serializer = self.get_serializer(loan)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], permission_classes=[IsLibraryStaffOrApiKey])
+    def process_overdue(self, request):
+        today = timezone.now().date()
+        overdue_loans = Loan.objects.filter(
+            status=Loan.LoanStatus.BORROWED,
+            due_date__lte=today,
+        ).select_related("book_copy", "book_copy__resource")
+
+        results = []
+        now = timezone.now()
+        for loan in overdue_loans:
+            loan.status = Loan.LoanStatus.OVERDUE
+            loan.save(update_fields=["status"])
+            send_library_webhook(
+                {
+                    "event": "loan_overdue",
+                    "mode": Loan.LoanStatus.OVERDUE,
+                    "name": loan.borrower_name,
+                    "email": loan.borrower_email,
+                    "phoneNumber": loan.borrower_phone,
+                    "bookTitle": loan.book_copy.resource.title,
+                    "dueDate": loan.due_date.isoformat() if loan.due_date else None,
+                    "markedOverdueAt": now.isoformat(),
+                    "loanId": loan.id,
+                    "copyNumber": loan.book_copy.accession_number,
+                }
+            )
+            results.append(
+                {
+                    "loanId": loan.id,
+                    "borrowerName": loan.borrower_name,
+                    "borrowerPhone": loan.borrower_phone,
+                    "bookTitle": loan.book_copy.resource.title,
+                    "dueDate": loan.due_date.isoformat() if loan.due_date else None,
+                }
+            )
+
+        if results:
+            bust_resources_cache()
+        return Response({"count": len(results), "marked": results})
+
     @action(detail=True, methods=["post"], permission_classes=[IsLibraryStaff])
     def approve(self, request, pk=None):
         """
         Confirm one borrower from the pending request queue.
 
         Keeps the remaining pending requests in the queue, then
-        transitions this loan directly to *borrowed* and fires the relevant webhook.
+        transitions this loan directly to *borrowed* and assigns one currently
+        available copy for the title.
 
-        We lock every active loan for this resource inside the transaction so that
-        two librarians cannot simultaneously confirm two different requesters for
-        the same book (the second save would raise a ValidationError via clean()).
+        We lock the resource copies and active loans inside the transaction so
+        concurrent approvals can safely consume different copies without
+        double-assigning the same accession number.
         """
         loan = self.get_object()
         if loan.status != Loan.LoanStatus.REQUESTED:
             raise ValidationError({"status": "Only loans with status 'requested' can be approved through this action."})
 
         with transaction.atomic():
-            # Lock ALL active loans for this resource so no concurrent approve
-            # can slip through between our read and our write.
+            locked_copies = list(
+                BookCopy.objects.select_for_update(nowait=False)
+                .filter(resource=loan.book_copy.resource)
+                .order_by("accession_number")
+            )
             locked = list(
                 Loan.objects.select_for_update(nowait=False).filter(
                     book_copy__resource=loan.book_copy.resource,
@@ -437,22 +621,21 @@ class LoanViewSet(viewsets.ModelViewSet):
                 )
             )
 
-            # After acquiring the lock, re-validate: nobody else may have
-            # already confirmed a borrower while we were waiting.
-            already_borrowed = any(
-                l.status in (Loan.LoanStatus.BORROWED, Loan.LoanStatus.OVERDUE, Loan.LoanStatus.APPROVED)
-                for l in locked
-                if l.pk != loan.pk
-            )
-            if already_borrowed:
-                raise ValidationError({"status": "This book is already borrowed by someone else."})
-
             # Re-read the target loan state from the locked queryset.
             fresh = next((l for l in locked if l.pk == loan.pk), None)
             if fresh is None or fresh.status != Loan.LoanStatus.REQUESTED:
                 raise ValidationError({"status": "This request has already been processed."})
 
+            available_copy = next(
+                (copy for copy in locked_copies if copy.status == BookCopy.CopyStatus.AVAILABLE),
+                None,
+            )
+            if available_copy is None:
+                raise ValidationError({"status": "No copies are currently available to approve for this title."})
+
             now = timezone.now()
+            loan = fresh
+            loan.book_copy = available_copy
             loan.status = Loan.LoanStatus.BORROWED
             loan.approved_at = now
             loan.borrowed_at = loan.borrowed_at or now
@@ -504,19 +687,69 @@ class BookRequestViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "create":
             return [AllowAny()]
+        if self.action == "student_cancel":
+            return [IsAuthenticated()]
         return [IsLibraryStaff()]
 
     def create(self, request, *args, **kwargs):
         payload = request.data.copy()
+        populate_identity_from_account(
+            request,
+            payload,
+            relation_key="requesterId",
+            name_key="studentName",
+            email_key="studentEmail",
+            phone_key="studentPhone",
+            student_id_key="studentId",
+        )
         now = datetime.now().astimezone()
         payload["id"] = payload.get("id") or f"req{int(now.timestamp() * 1000)}"
         payload["submittedAt"] = payload.get("submittedAt") or now.isoformat()
         payload["status"] = payload.get("status") or BookRequest.RequestStatus.PENDING
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        book_request = serializer.save()
+        send_library_webhook(
+            {
+                "event": "book_request_submitted",
+                "requestId": book_request.id,
+                "submittedAt": book_request.submitted_at.isoformat(),
+                "bookTitle": book_request.book_title,
+                "category": book_request.category,
+                "reason": book_request.reason,
+                "name": book_request.student_name,
+                "email": book_request.student_email,
+                "phoneNumber": book_request.student_phone,
+                "studentId": book_request.student_id_code,
+                "neededFrom": book_request.needed_from.isoformat() if book_request.needed_from else None,
+                "neededUntil": book_request.needed_until.isoformat() if book_request.needed_until else None,
+            }
+        )
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated], url_path="student-cancel")
+    def student_cancel(self, request, pk=None):
+        book_request = self.get_queryset().filter(pk=pk).first()
+
+        if book_request is None:
+            raise ValidationError({"detail": "This request could not be found."})
+
+        if not is_owned_by_current_account(
+            user=request.user,
+            related_user_id=book_request.requester_id,
+            email_value=book_request.student_email,
+        ):
+            raise ValidationError({"detail": "You can only manage requests linked to your own account."})
+
+        if book_request.status != BookRequest.RequestStatus.PENDING:
+            raise ValidationError({"status": "Only pending book requests can be cancelled from your account."})
+
+        book_request.status = BookRequest.RequestStatus.CANCELLED
+        book_request.save(update_fields=["status"])
+
+        serializer = self.get_serializer(book_request)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class SupportMessageViewSet(viewsets.ModelViewSet):
@@ -530,6 +763,13 @@ class SupportMessageViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         payload = request.data.copy()
+        populate_identity_from_account(
+            request,
+            payload,
+            relation_key="requesterId",
+            name_key="fullName",
+            email_key="email",
+        )
         now = datetime.now().astimezone()
         payload["id"] = payload.get("id") or f"msg{int(now.timestamp() * 1000)}"
         payload["submittedAt"] = payload.get("submittedAt") or now.isoformat()
@@ -567,6 +807,36 @@ class AdminLoginView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class StudentLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = LibraryLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        profile_data = UserProfileSerializer(serializer.validated_data["profile"]).data
+        payload = {
+            "token": serializer.validated_data["token"].key,
+            "user": profile_data,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class StudentRegisterView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = StudentRegistrationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        profile = ensure_user_profile(user)
+        token, _ = Token.objects.get_or_create(user=user)
+        payload = {
+            "token": token.key,
+            "user": UserProfileSerializer(profile).data,
+        }
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
 class AuthMeView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
@@ -574,6 +844,57 @@ class AuthMeView(APIView):
     def get(self, request):
         profile_data = UserProfileSerializer(ensure_user_profile(request.user)).data
         return Response({"user": profile_data}, status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        profile = ensure_user_profile(request.user)
+        serializer = UserProfileUpdateSerializer(instance=profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        updated_profile = serializer.save()
+        return Response({"user": UserProfileSerializer(updated_profile).data}, status=status.HTTP_200_OK)
+
+
+class StudentDashboardView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        profile = ensure_user_profile(user)
+        if profile.role != UserProfile.Role.STUDENT:
+            return Response(
+                {"detail": "This dashboard is available to student accounts only."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        loans = filter_for_current_account(
+            Loan.objects.select_related("book_copy", "book_copy__resource"),
+            user=user,
+            relation_field="borrower",
+            email_field="borrower_email",
+        ).order_by("-requested_at")
+
+        requests = filter_for_current_account(
+            BookRequest.objects.select_related("resource", "requester", "reviewed_by"),
+            user=user,
+            relation_field="requester",
+            email_field="student_email",
+        ).order_by("-submitted_at")
+
+        support_messages = filter_for_current_account(
+            SupportMessage.objects.select_related("requester", "resolved_by"),
+            user=user,
+            relation_field="requester",
+            email_field="email",
+        ).order_by("-submitted_at")
+
+        payload = {
+            "user": profile,
+            "loans": loans,
+            "requests": requests,
+            "supportMessages": support_messages,
+        }
+        serializer = StudentDashboardSerializer(payload)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AdminLogoutView(APIView):

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { useLibrarySession } from "../../../hooks/useLibrarySession";
 
 interface Props {
   onClose: () => void;
@@ -21,6 +22,7 @@ export default function RequestModal({
   mode = "request",
 }: Props) {
   const { addRequest, addLoan, categories } = useAdminData();
+  const { user } = useLibrarySession();
   const [requestMode] = useState(mode);
   const today = new Date().toISOString().split("T")[0];
   const categoryNames = categories.map((category) => category.name);
@@ -40,15 +42,25 @@ export default function RequestModal({
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
 
+  useEffect(() => {
+    if (!user) return;
+    setForm((prev) => ({
+      ...prev,
+      studentName: prev.studentName || user.fullName || "",
+      studentEmail: prev.studentEmail || user.email || "",
+      studentPhone: prev.studentPhone || user.phone_number || "",
+    }));
+  }, [user]);
+
   const copy = {
     request: {
-      title: "Request a New Book",
+      title: "Suggest a New Book",
       subtitle: "Use this form to suggest a book that is not currently available in the library collection.",
-      button: "Submit Book Request",
-      successTitle: "Request Submitted",
-      successText: "Our librarians will review your request and consider adding this title to the collection.",
-      successSubtitle: "Your new book request has been received successfully.",
-      successBadge: "BOOK REQUEST",
+      button: "Submit Book Suggestion",
+      successTitle: "Suggestion Submitted",
+      successText: "Our librarians will review your suggestion and consider adding this title to the collection.",
+      successSubtitle: "Your book suggestion has been received successfully.",
+      successBadge: "BOOK SUGGESTION",
       successBadgeClass: "bg-[#F3E9DA] text-[#8A5A14]",
       successIconClass: "ri-bookmark-line text-[#8A5A14]",
       successIconWrapClass: "bg-[#FFF4DD]",
@@ -95,8 +107,8 @@ export default function RequestModal({
       studentEmail: "email address",
       studentName: "name",
       studentPhone: "phone number",
-      neededFrom: "start date",
-      neededUntil: "end date",
+      neededFrom: "borrowing start date",
+      neededUntil: "return due date",
       book_copy: "book copy",
       resourceId: "book",
       requestedFrom: "reservation start date",
@@ -146,10 +158,10 @@ export default function RequestModal({
       return trimmedMessage;
     }
     if (trimmedMessage.includes("active reservation")) {
-      return "This copy is already reserved for another student. Please try a different book or contact the librarian.";
+      return "All currently assignable copies are already reserved for other students. Please try again later or contact the librarian.";
     }
     if (trimmedMessage.includes("not currently available to borrow")) {
-      return "This book is not available right now. Please try again later or contact the library team.";
+      return "No copies are available right now. Please try again later or contact the library team.";
     }
     if (trimmedMessage.includes("Borrower details are required")) {
       return "Please enter your name and email before submitting.";
@@ -267,7 +279,7 @@ export default function RequestModal({
                   <div className="min-w-0">
                     {expectedDateLabel && (
                       <p className="text-xs font-semibold text-sky-800">
-                        Expected back on {expectedDateLabel}
+                        Next copy expected back on {expectedDateLabel}
                       </p>
                     )}
                     {availabilityNote && (
@@ -286,7 +298,7 @@ export default function RequestModal({
                   <div className="min-w-0">
                     {expectedDateLabel && (
                       <p className="text-xs font-semibold text-[#5C4520]">
-                        Expected available on {expectedDateLabel}
+                        Next copy expected back on {expectedDateLabel}
                       </p>
                     )}
                     {availabilityNote && (
@@ -416,7 +428,7 @@ export default function RequestModal({
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">
                   <i className="ri-calendar-line mr-1 text-[#442F73]" />
-                  Needed Period (From - To)
+                  Borrowing Dates
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -431,7 +443,7 @@ export default function RequestModal({
                     />
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-400 mb-1">Until</p>
+                    <p className="text-[10px] text-gray-400 mb-1">Return Due Date</p>
                     <input
                       required
                       type="date"
@@ -448,6 +460,14 @@ export default function RequestModal({
                     {Math.ceil((new Date(form.neededUntil).getTime() - new Date(form.neededFrom).getTime()) / (1000 * 60 * 60 * 24))} days
                   </p>
                 )}
+                <div className="mt-3 rounded-xl border border-amber-200 bg-[#FFF8EC] px-3.5 py-3">
+                  <div className="flex items-start gap-2">
+                    <i className="ri-alert-line text-amber-700 mt-0.5" />
+                    <p className="text-xs leading-5 text-[#7A6240]">
+                      Please note: if the book is not returned by the due date, your borrowing privileges may be temporarily restricted until the item is returned or the matter is resolved with the library team.
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 

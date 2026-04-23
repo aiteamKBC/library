@@ -16,6 +16,26 @@ const statusStyles: Record<string, string> = {
   returned: "bg-emerald-50 text-emerald-700 border border-emerald-200",
 };
 
+const RETURN_CONDITION_OPTIONS = [
+  {
+    value: "good",
+    label: "Good",
+    description: "The copy came back in good condition and is ready for normal circulation.",
+  },
+  {
+    value: "damaged",
+    label: "Damaged",
+    description: "The copy has noticeable damage and should be reviewed by the library team.",
+  },
+  {
+    value: "torn",
+    label: "Needs Repair",
+    description: "The copy needs repair before it can return to normal circulation.",
+  },
+] as const;
+
+type ReturnCondition = typeof RETURN_CONDITION_OPTIONS[number]["value"];
+
 function formatDate(date?: string | null) {
   if (!date) return "-";
   return new Date(date).toLocaleDateString("en-GB", {
@@ -23,6 +43,41 @@ function formatDate(date?: string | null) {
     month: "short",
     year: "numeric",
   });
+}
+
+function flattenStructuredError(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const firstString = value.find((item) => typeof item === "string");
+    return typeof firstString === "string" ? firstString : null;
+  }
+  if (value && typeof value === "object") {
+    for (const nestedValue of Object.values(value)) {
+      const nestedMessage = flattenStructuredError(nestedValue);
+      if (nestedMessage) {
+        return nestedMessage;
+      }
+    }
+  }
+  return null;
+}
+
+function formatApiError(message: string) {
+  const trimmed = message.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      const nested = flattenStructuredError(parsed);
+      if (nested) {
+        return nested;
+      }
+    } catch {
+      // Fall through to the raw message.
+    }
+  }
+  return trimmed || "We could not save this update right now.";
 }
 
 function BorrowerCard({ loan }: { loan: Loan }) {
@@ -64,6 +119,11 @@ interface DateEdit {
   dueDate: string;
 }
 
+function getRequestedAtTime(loan: Loan) {
+  const timestamp = new Date(loan.requestedAt).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function BorrowQueue() {
   const { loans, approveLoan, updateLoan } = useAdminData();
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -79,13 +139,16 @@ function BorrowQueue() {
 
   const groups = useMemo<BookGroup[]>(() => {
     const map = new Map<string, BookGroup>();
-    for (const loan of pending) {
+    const orderedPending = [...pending].sort((a, b) => getRequestedAtTime(a) - getRequestedAtTime(b));
+
+    for (const loan of orderedPending) {
       const key = loan.resourceId ?? loan.bookTitle;
       if (!map.has(key)) {
         map.set(key, { key, bookTitle: loan.bookTitle, requests: [] });
       }
       map.get(key)!.requests.push(loan);
     }
+
     return [...map.values()].sort((a, b) => b.requests.length - a.requests.length);
   }, [pending]);
 
@@ -303,6 +366,11 @@ function ActiveLoans() {
   const [editingLoan, setEditingLoan] = useState<string | null>(null);
   const [activeEdit, setActiveEdit] = useState<ActiveDateEdit>({ dueDate: "", notes: "" });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [returningLoan, setReturningLoan] = useState<Loan | null>(null);
+  const [returnCondition, setReturnCondition] = useState<ReturnCondition>("good");
+  const [returnConditionNotes, setReturnConditionNotes] = useState("");
+  const [returnEvidenceFile, setReturnEvidenceFile] = useState<File | null>(null);
+  const [returnModalError, setReturnModalError] = useState("");
 
   const active = useMemo(
     () => loans.filter((l) => (ACTIVE_STATUSES as readonly string[]).includes(l.status)),
@@ -370,8 +438,59 @@ function ActiveLoans() {
     }
   };
 
+  const openReturnModal = (loan: Loan) => {
+    setReturningLoan(loan);
+    setReturnCondition(
+      loan.returnCondition && loan.returnCondition !== "worn"
+        ? (loan.returnCondition as ReturnCondition)
+        : "good",
+    );
+    setReturnConditionNotes(loan.returnConditionNotes ?? "");
+    setReturnEvidenceFile(null);
+    setReturnModalError("");
+  };
+
+  const closeReturnModal = () => {
+    if (returningLoan && actionInProgress === returningLoan.id) {
+      return;
+    }
+    setReturningLoan(null);
+    setReturnCondition("good");
+    setReturnConditionNotes("");
+    setReturnEvidenceFile(null);
+    setReturnModalError("");
+  };
+
+  const handleConfirmReturn = async () => {
+    if (!returningLoan || actionInProgress) return;
+    setActionInProgress(returningLoan.id);
+    setReturnModalError("");
+    try {
+      await updateLoan(returningLoan.id, {
+        status: "returned",
+        returnCondition,
+        returnConditionNotes: returnConditionNotes.trim() || undefined,
+      }, {
+        returnEvidenceFile,
+      });
+      setReturningLoan(null);
+      setReturnCondition("good");
+      setReturnConditionNotes("");
+      setReturnEvidenceFile(null);
+      setReturnModalError("");
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : "We could not save this return right now.";
+      setReturnModalError(formatApiError(rawMessage));
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const requiresReturnEvidence = returnCondition === "damaged" || returnCondition === "torn";
+
   return (
-    <div className="space-y-4">
+    <>
+      <div className="space-y-4">
       <div className="flex gap-2 flex-wrap">
         {ACTIVE_FILTER_TABS.map((tab) => (
           <button
@@ -509,7 +628,7 @@ function ActiveLoans() {
 
               {(loan.status === "borrowed" || loan.status === "overdue") && (
                 <button
-                  onClick={() => void handleAction(loan.id, { status: "returned" })}
+                  onClick={() => openReturnModal(loan)}
                   disabled={actionInProgress === loan.id}
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
                 >
@@ -577,7 +696,176 @@ function ActiveLoans() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+
+      {returningLoan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">Return Check</p>
+                <h3 className="mt-1 text-lg font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+                  Record the condition of the returned copy
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  {returningLoan.bookTitle} • {returningLoan.accessionNumber}
+                </p>
+              </div>
+              <button
+                onClick={closeReturnModal}
+                disabled={actionInProgress === returningLoan.id}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className="ri-close-line text-lg" />
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {RETURN_CONDITION_OPTIONS.map((option) => {
+                  const selected = returnCondition === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setReturnCondition(option.value)}
+                      className={`rounded-2xl border p-4 text-left transition-all ${
+                        selected
+                          ? "border-emerald-300 bg-emerald-50 shadow-sm"
+                          : "border-gray-200 bg-white hover:border-[#442F73]/20 hover:bg-[#442F73]/[0.03]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className={`text-sm font-semibold ${selected ? "text-emerald-800" : "text-gray-900"}`}>
+                            {option.label}
+                          </p>
+                          <p className={`mt-1 text-xs leading-5 ${selected ? "text-emerald-700" : "text-gray-500"}`}>
+                            {option.description}
+                          </p>
+                        </div>
+                        <span className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${
+                          selected
+                            ? "border-emerald-500 bg-emerald-500 text-white"
+                            : "border-gray-300 text-transparent"
+                        }`}>
+                          <i className="ri-check-line" />
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {returnModalError && (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {returnModalError}
+                </div>
+              )}
+
+              <div>
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    Return Evidence
+                  </label>
+                  <span className={`text-[11px] font-semibold ${requiresReturnEvidence ? "text-amber-600" : "text-gray-400"}`}>
+                    {requiresReturnEvidence ? "Required for damage or repair cases" : "Optional"}
+                  </span>
+                </div>
+                <div className={`rounded-2xl border border-dashed px-4 py-4 ${
+                  requiresReturnEvidence ? "border-amber-300 bg-amber-50/40" : "border-gray-200 bg-gray-50/50"
+                }`}>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {returnEvidenceFile ? returnEvidenceFile.name : "Attach a photo or PDF as proof"}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">
+                        Upload JPG, PNG, WEBP, or PDF up to 10 MB. This stays linked to the return history for later review.
+                      </p>
+                    </div>
+                    <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#442F73]/20 bg-white px-4 py-2.5 text-sm font-semibold text-[#442F73] transition-colors hover:border-[#442F73] hover:bg-[#F7F2FF]">
+                      <i className="ri-attachment-2" />
+                      {returnEvidenceFile ? "Replace File" : "Upload File"}
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        className="hidden"
+                        onChange={(event) => {
+                          const nextFile = event.target.files?.[0] ?? null;
+                          setReturnEvidenceFile(nextFile);
+                          setReturnModalError("");
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {returnEvidenceFile && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm">
+                        <i className="ri-file-line" />
+                        {(returnEvidenceFile.size / (1024 * 1024)).toFixed(2)} MB
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReturnEvidenceFile(null)}
+                        className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        <i className="ri-close-line" />
+                        Remove file
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  Condition Notes
+                </label>
+                <textarea
+                  value={returnConditionNotes}
+                  onChange={(event) => setReturnConditionNotes(event.target.value.slice(0, 500))}
+                  rows={4}
+                  placeholder="Optional details such as bent cover, loose pages, water marks, torn section, or anything the librarian should know..."
+                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-700 outline-none transition-colors focus:border-[#442F73] resize-none"
+                />
+                <p className="mt-1 text-right text-[11px] text-gray-400">{returnConditionNotes.length}/500</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 px-6 py-5">
+              <button
+                type="button"
+                onClick={closeReturnModal}
+                disabled={actionInProgress === returningLoan.id}
+                className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmReturn()}
+                disabled={actionInProgress === returningLoan.id || (requiresReturnEvidence && !returnEvidenceFile)}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {actionInProgress === returningLoan.id ? (
+                  <>
+                    <i className="ri-loader-4-line animate-spin" />
+                    Saving return...
+                  </>
+                ) : (
+                  <>
+                    <i className="ri-save-line" />
+                    Save Return Condition
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -731,7 +1019,7 @@ export default function LoansManager() {
   );
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="w-full space-y-6">
       <div>
         <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: "'Playfair Display', serif" }}>
           Loans & Reservations
