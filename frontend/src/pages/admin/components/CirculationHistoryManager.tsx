@@ -102,6 +102,10 @@ type BookHistoryRow = {
   latestDaysLate?: number;
   totalCopies: number;
   availableCopies: number;
+  feedbackCount: number;
+  feedbackAverageRating?: number | null;
+  feedbackRecommendRate: number;
+  feedbackLearnedRate: number;
 };
 
 type PdfExportStudentBook = {
@@ -1133,6 +1137,10 @@ export default function CirculationHistoryManager() {
         latestDaysLate: returnTimingSummary.daysLate,
         totalCopies: matchedResource?.totalCopies ?? 0,
         availableCopies: matchedResource?.availableCopies ?? 0,
+        feedbackCount: matchedResource?.feedbackCount ?? 0,
+        feedbackAverageRating: matchedResource?.feedbackAverageRating ?? null,
+        feedbackRecommendRate: matchedResource?.feedbackRecommendRate ?? 0,
+        feedbackLearnedRate: matchedResource?.feedbackLearnedRate ?? 0,
         borrowerSet: new Set<string>(),
         copySet: new Set<string>(),
       };
@@ -1150,6 +1158,10 @@ export default function CirculationHistoryManager() {
       }
       existing.totalCopies = matchedResource?.totalCopies ?? existing.totalCopies;
       existing.availableCopies = matchedResource?.availableCopies ?? existing.availableCopies;
+      existing.feedbackCount = matchedResource?.feedbackCount ?? existing.feedbackCount;
+      existing.feedbackAverageRating = matchedResource?.feedbackAverageRating ?? existing.feedbackAverageRating;
+      existing.feedbackRecommendRate = matchedResource?.feedbackRecommendRate ?? existing.feedbackRecommendRate;
+      existing.feedbackLearnedRate = matchedResource?.feedbackLearnedRate ?? existing.feedbackLearnedRate;
       existing.author = matchedResource?.author ?? existing.author;
       existing.bookTitle = matchedResource?.title ?? existing.bookTitle;
       existing.resourceId = matchedResource?.id ?? existing.resourceId;
@@ -1982,6 +1994,55 @@ export default function CirculationHistoryManager() {
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9B8AB8]">Returned</p>
                   <p className="mt-2 text-3xl font-bold leading-none text-[#241453]">{book.totalReturns}</p>
                 </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Latest Activity</p>
+                  <p className="mt-2 text-sm font-semibold text-[#241453]">{formatDate(book.lastReturnedAt)}</p>
+                  <p className="mt-1 text-xs text-gray-500">Latest borrower: {book.latestBorrower}</p>
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Borrowers / Copies</p>
+                  <p className="mt-2 text-sm font-semibold text-[#241453]">{book.uniqueBorrowers} borrowers across {book.copiesUsed} copies</p>
+                  <p className="mt-1 text-xs text-gray-500">Inventory now: {book.availableCopies}/{book.totalCopies} available</p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9B8AB8]">Reader Feedback</p>
+                    <p className="mt-1 text-xs text-gray-500">Collected after books are marked as returned.</p>
+                  </div>
+                  {book.feedbackCount > 0 && (
+                    <div className="inline-flex items-center gap-1 rounded-full border border-[#E9D9BD] bg-white px-3 py-1 text-xs font-semibold text-[#241453]">
+                      <i className="ri-star-fill text-[#B27715]" />
+                      {book.feedbackAverageRating?.toFixed(1) ?? "-"} / 5
+                    </div>
+                  )}
+                </div>
+
+                {book.feedbackCount > 0 ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-[#E9D9BD] bg-white px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Responses</p>
+                      <p className="mt-2 text-2xl font-bold text-[#241453]">{book.feedbackCount}</p>
+                    </div>
+                    <div className="rounded-2xl border border-[#E9D9BD] bg-white px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Recommend</p>
+                      <p className="mt-2 text-2xl font-bold text-[#241453]">{book.feedbackRecommendRate}%</p>
+                    </div>
+                    <div className="rounded-2xl border border-[#E9D9BD] bg-white px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Learned Something</p>
+                      <p className="mt-2 text-2xl font-bold text-[#241453]">{book.feedbackLearnedRate}%</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-gray-500">
+                    No feedback has been submitted for this title yet.
+                  </p>
+                )}
               </div>
             </div>
           ))}

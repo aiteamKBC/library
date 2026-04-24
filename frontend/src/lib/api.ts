@@ -1,13 +1,15 @@
 import type {
   AuthSession,
   AuthUser,
+  BookFeedback,
+  BookFeedbackSubmissionPayload,
   BookRequest,
   Category,
+  FeedbackContext,
   Loan,
   Resource,
   StudentDashboard,
   StudentProfileUpdatePayload,
-  StudentRegistrationPayload,
   SupportMessage,
 } from "../types/library";
 
@@ -152,18 +154,10 @@ export const api = {
     setAuthToken(session.token);
     return session;
   },
-  loginStudent: async (identifier: string, password: string) => {
+  loginStudent: async (email: string) => {
     const session = await request<AuthSession>("/auth/student-login/", {
       method: "POST",
-      body: JSON.stringify({ identifier, password }),
-    }, { auth: "none" });
-    setAuthToken(session.token);
-    return session;
-  },
-  registerStudent: async (payload: StudentRegistrationPayload) => {
-    const session = await request<AuthSession>("/auth/register/", {
-      method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ email }),
     }, { auth: "none" });
     setAuthToken(session.token);
     return session;
@@ -216,6 +210,17 @@ export const api = {
     invalidateCache("/resources/");
   },
   listResources: () => request<Resource[]>("/resources/", undefined, { auth: "none" }),
+  getFeedbackContext: (token: string) =>
+    request<FeedbackContext>(`/feedback/context/?token=${encodeURIComponent(token)}`, undefined, { auth: "none" }),
+  submitFeedback: async (payload: BookFeedbackSubmissionPayload) => {
+    const created = await request<BookFeedback>("/feedback/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, { auth: "none" });
+    invalidateCache("/feedback/");
+    invalidateCache("/resources/");
+    return created;
+  },
   createResource: async (payload: Omit<Resource, "id">) => {
     const created = await request<Resource>("/resources/", {
       method: "POST",

@@ -144,7 +144,8 @@ TIME_ZONE = "Africa/Cairo"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -167,6 +168,12 @@ EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
 EMAIL_TIMEOUT = env_int("EMAIL_TIMEOUT", 30)
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "KBC Library <library@kbc.ac.uk>")
 SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://127.0.0.1:3000")
+KBC_ALLOWLIST_DATABASE_URL = os.getenv("KBC_ALLOWLIST_DATABASE_URL", "")
+KBC_ALLOWLIST_SCHEMA = os.getenv("KBC_ALLOWLIST_SCHEMA", "public")
+KBC_ALLOWLIST_TABLE = os.getenv("KBC_ALLOWLIST_TABLE", "kbc_users_data")
+KBC_ALLOWLIST_EMAIL_COLUMN = os.getenv("KBC_ALLOWLIST_EMAIL_COLUMN", "Email")
+KBC_ALLOWLIST_NAME_COLUMN = os.getenv("KBC_ALLOWLIST_NAME_COLUMN", "FullName")
 N8N_LIBRARY_WEBHOOK_URL = os.getenv(
     "N8N_LIBRARY_WEBHOOK_URL",
     "https://n8n.srv943390.hstgr.cloud/webhook/library",

@@ -41,6 +41,7 @@ export default function RequestModal({
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [acceptedBorrowPolicy, setAcceptedBorrowPolicy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -177,6 +178,8 @@ export default function RequestModal({
 
   const isGeneralRequest = requestMode === "request";
   const showDates = requestMode === "borrow";
+  const requiresPolicyAcceptance = requestMode === "borrow";
+  const borrowPolicyHref = "/assets/Library%20terms%20and%20conditions.pdf";
 
   const isValidUkPhone = (value: string) => {
     const normalized = value.replace(/[\s()-]/g, "");
@@ -191,8 +194,16 @@ export default function RequestModal({
       setSubmitError("Please enter your full name in the name field.");
       return;
     }
+    if (!form.studentPhone.trim()) {
+      setSubmitError("Please add your phone number so the library team can contact you.");
+      return;
+    }
     if (!isValidUkPhone(form.studentPhone)) {
       setSubmitError("Please enter a valid UK phone number, for example 07123 456789 or +44 7123 456789.");
+      return;
+    }
+    if (requiresPolicyAcceptance && !acceptedBorrowPolicy) {
+      setSubmitError("Please review and accept the Library Borrowing Policy before submitting your request.");
       return;
     }
     setSubmitting(true);
@@ -239,7 +250,7 @@ export default function RequestModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-xl">
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         {submitError && (
           <div className="absolute inset-0 z-10 flex items-center justify-center p-6 bg-white/55 backdrop-blur-[2px] rounded-2xl">
             <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-[#FFF9F0] shadow-2xl">
@@ -262,7 +273,7 @@ export default function RequestModal({
           </div>
         )}
 
-        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div className="min-w-0 flex-1">
             <h2 className="font-bold text-[#241453] text-lg" style={{ fontFamily: "'Playfair Display', serif" }}>
               {submitted ? copy.successTitle : copy.title}
@@ -273,7 +284,7 @@ export default function RequestModal({
 
             {/* Notify mode: availability info banner */}
             {!submitted && requestMode === "notify" && (availabilityNote || expectedDateLabel) && (
-              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 px-3.5 py-3">
+              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 px-3 py-2.5">
                 <div className="flex items-start gap-2">
                   <i className="ri-notification-3-line text-sky-700 mt-0.5" />
                   <div className="min-w-0">
@@ -292,7 +303,7 @@ export default function RequestModal({
 
             {/* Borrow mode: timing info banner */}
             {!submitted && requestMode === "borrow" && (availabilityNote || expectedDateLabel) && (
-              <div className="mt-3 rounded-xl border border-amber-200 bg-[#FFF8EC] px-3.5 py-3">
+              <div className="mt-3 rounded-xl border border-amber-200 bg-[#FFF8EC] px-3 py-2.5">
                 <div className="flex items-start gap-2">
                   <i className="ri-time-line text-amber-700 mt-0.5" />
                   <div className="min-w-0">
@@ -319,7 +330,7 @@ export default function RequestModal({
         </div>
 
         {submitted ? (
-          <div className="p-8 text-center">
+          <div className="overflow-y-auto p-7 text-center">
             <div className={`w-14 h-14 mx-auto flex items-center justify-center rounded-full mb-4 ${copy.successIconWrapClass}`}>
               <i className={`${copy.successIconClass} text-2xl`} />
             </div>
@@ -343,11 +354,11 @@ export default function RequestModal({
             </button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <form onSubmit={handleSubmit} className="overflow-y-auto px-6 py-5 space-y-3.5">
             {/* Name + Email */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Your Name</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Your Name</label>
                 <input
                   required
                   type="text"
@@ -360,7 +371,7 @@ export default function RequestModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Email</label>
                 <input
                   required
                   type="email"
@@ -376,7 +387,9 @@ export default function RequestModal({
 
             {/* Phone */}
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone Number</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">
+                Phone Number <span className="text-rose-500">*</span>
+              </label>
               <input
                 required
                 type="tel"
@@ -387,12 +400,12 @@ export default function RequestModal({
                 placeholder="Enter your phone number"
                 className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
               />
-              <p className="mt-1 text-[11px] text-gray-400">Use a UK number like 07123 456789 or +44 7123 456789.</p>
+              <p className="mt-0.5 text-[11px] text-gray-400">Required. Use a UK number like 07123 456789 or +44 7123 456789.</p>
             </div>
 
             {/* Book Title */}
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Book Title</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Book Title</label>
               <input
                 required
                 type="text"
@@ -411,7 +424,7 @@ export default function RequestModal({
             {/* Category + Dates — only for general request (category) or borrow (category + dates) */}
             {isGeneralRequest && (
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Category</label>
                 <select
                   value={form.category}
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -426,7 +439,7 @@ export default function RequestModal({
 
             {showDates && (
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
                   <i className="ri-calendar-line mr-1 text-[#442F73]" />
                   Borrowing Dates
                 </label>
@@ -455,12 +468,12 @@ export default function RequestModal({
                   </div>
                 </div>
                 {form.neededFrom && form.neededUntil && new Date(form.neededUntil) > new Date(form.neededFrom) && (
-                  <p className="text-xs text-[#442F73] mt-1.5 flex items-center gap-1">
+                  <p className="text-[11px] text-[#442F73] mt-1 flex items-center gap-1">
                     <i className="ri-time-line" />
                     {Math.ceil((new Date(form.neededUntil).getTime() - new Date(form.neededFrom).getTime()) / (1000 * 60 * 60 * 24))} days
                   </p>
                 )}
-                <div className="mt-3 rounded-xl border border-amber-200 bg-[#FFF8EC] px-3.5 py-3">
+                <div className="mt-2.5 rounded-xl border border-amber-200 bg-[#FFF8EC] px-3 py-2.5">
                   <div className="flex items-start gap-2">
                     <i className="ri-alert-line text-amber-700 mt-0.5" />
                     <p className="text-xs leading-5 text-[#7A6240]">
@@ -468,28 +481,51 @@ export default function RequestModal({
                     </p>
                   </div>
                 </div>
+                <div className="mt-2.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={acceptedBorrowPolicy}
+                      onChange={(e) => setAcceptedBorrowPolicy(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#442F73] focus:ring-[#442F73]"
+                    />
+                    <span className="text-xs leading-5 text-gray-700">
+                      I have read and agree to the{" "}
+                      <a
+                        href={borrowPolicyHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold text-[#442F73] underline underline-offset-2 hover:text-[#241453]"
+                      >
+                        Library Borrowing Policy
+                      </a>
+                      .
+                    </span>
+                  </label>
+                </div>
               </div>
             )}
 
             {/* Optional note */}
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+              <label className="block text-xs font-semibold text-gray-600 mb-1">
                 {requestMode === "notify" ? "Any additional note?" : "Why do you need it?"}
               </label>
               <textarea
                 value={form.reason}
                 onChange={(e) => setForm({ ...form, reason: e.target.value.slice(0, 300) })}
                 placeholder="Optional note for the library team..."
-                rows={3}
+                rows={requestMode === "borrow" ? 2 : 3}
                 className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800 resize-none"
               />
-              <p className="text-xs text-gray-400 mt-1 text-right">{form.reason.length}/300</p>
+              <p className="text-[11px] text-gray-400 mt-1 text-right">{form.reason.length}/300</p>
             </div>
 
             <button
               type="submit"
-              disabled={submitting}
-              className="w-full py-3 font-semibold text-sm rounded-xl transition-colors duration-200 bg-[#442F73] hover:bg-[#241453] text-white cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:bg-[#442F73]"
+              disabled={submitting || (requiresPolicyAcceptance && !acceptedBorrowPolicy)}
+              className="w-full py-2.5 font-semibold text-sm rounded-xl transition-colors duration-200 bg-[#442F73] hover:bg-[#241453] text-white cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:bg-[#442F73]"
             >
               {submitting ? (
                 <span className="inline-flex items-center justify-center gap-2">

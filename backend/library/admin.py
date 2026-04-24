@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BookCopy, BookRequest, Category, Loan, NotificationLog, Resource, SupportMessage
+from .models import BookCopy, BookFeedback, BookRequest, Category, Loan, NotificationLog, Resource, SupportMessage
 
 
 @admin.register(Category)
@@ -68,6 +68,13 @@ class NotificationLogAdmin(admin.ModelAdmin):
         "loan__book_copy__resource__title",
         "recipient_email",
     )
+
+
+@admin.register(BookFeedback)
+class BookFeedbackAdmin(admin.ModelAdmin):
+    list_display = ("resource", "borrower_name", "borrower_email", "star_rating", "would_recommend", "learned_something", "content_quality", "submitted_at")
+    list_filter = ("would_recommend", "learned_something", "content_quality", "star_rating", "submitted_at")
+    search_fields = ("resource__title", "borrower_name", "borrower_email", "comment", "loan__id")
 
 
 @admin.register(SupportMessage)

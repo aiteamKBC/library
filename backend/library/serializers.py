@@ -5,7 +5,7 @@ from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import BookCopy, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
+from .models import BookCopy, BookFeedback, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
 
 User = get_user_model()
 
@@ -57,6 +57,12 @@ class ResourceSerializer(serializers.ModelSerializer):
     availabilityNote = serializers.ReadOnlyField(source="availability_note")
     canBorrow = serializers.ReadOnlyField(source="can_borrow")
     canReserve = serializers.ReadOnlyField(source="can_reserve")
+    feedbackCount = serializers.ReadOnlyField(source="feedback_count")
+    feedbackAverageRating = serializers.ReadOnlyField(source="feedback_average_rating")
+    feedbackRecommendCount = serializers.ReadOnlyField(source="feedback_recommend_count")
+    feedbackLearnedCount = serializers.ReadOnlyField(source="feedback_learned_count")
+    feedbackRecommendRate = serializers.ReadOnlyField(source="feedback_recommend_rate")
+    feedbackLearnedRate = serializers.ReadOnlyField(source="feedback_learned_rate")
 
     class Meta:
         model = Resource
@@ -93,6 +99,12 @@ class ResourceSerializer(serializers.ModelSerializer):
             "availabilityNote",
             "canBorrow",
             "canReserve",
+            "feedbackCount",
+            "feedbackAverageRating",
+            "feedbackRecommendCount",
+            "feedbackLearnedCount",
+            "feedbackRecommendRate",
+            "feedbackLearnedRate",
         ]
 
     def create(self, validated_data):
@@ -193,9 +205,11 @@ class LoanSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Borrower details are required.")
         if not borrower and borrower_name and "@" in borrower_name:
             raise serializers.ValidationError({"borrowerName": "Please enter your full name in the name field."})
-        borrower_phone = attrs.get("borrower_phone", getattr(self.instance, "borrower_phone", ""))
-        if self.instance is None and not borrower and not borrower_phone:
+        borrower_phone = str(attrs.get("borrower_phone", getattr(self.instance, "borrower_phone", "")) or "").strip()
+        if self.instance is None and not borrower_phone:
             raise serializers.ValidationError("A phone number is required for borrowing and reservation requests.")
+        if "borrower_phone" in attrs and not borrower_phone:
+            raise serializers.ValidationError({"borrowerPhone": "Please enter a phone number."})
 
         next_status = attrs.get("status", getattr(self.instance, "status", Loan.LoanStatus.REQUESTED))
         return_evidence = attrs.get("return_evidence", getattr(self.instance, "return_evidence", None))
@@ -297,13 +311,55 @@ class BookRequestSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        student_phone = attrs.get("student_phone", getattr(self.instance, "student_phone", ""))
+        student_phone = str(attrs.get("student_phone", getattr(self.instance, "student_phone", "")) or "").strip()
         if self.instance is None and not student_phone:
             raise serializers.ValidationError("A phone number is required for library requests.")
+        if "student_phone" in attrs and not student_phone:
+            raise serializers.ValidationError({"studentPhone": "Please enter a phone number."})
         student_name = attrs.get("student_name", getattr(self.instance, "student_name", ""))
         if student_name and "@" in student_name:
             raise serializers.ValidationError({"studentName": "Please enter your full name in the name field."})
         return attrs
+
+
+class BookFeedbackSerializer(serializers.ModelSerializer):
+    loanId = serializers.CharField(source="loan_id", read_only=True)
+    resourceId = serializers.CharField(source="resource_id", read_only=True)
+    borrowerId = serializers.IntegerField(source="borrower_id", allow_null=True, read_only=True)
+    borrowerName = serializers.CharField(source="borrower_name", read_only=True)
+    borrowerEmail = serializers.EmailField(source="borrower_email", read_only=True)
+    learnedSomething = serializers.CharField(source="learned_something")
+    wouldRecommend = serializers.CharField(source="would_recommend")
+    contentQuality = serializers.CharField(source="content_quality")
+    starRating = serializers.IntegerField(source="star_rating")
+    submittedAt = serializers.DateTimeField(source="submitted_at", read_only=True)
+
+    class Meta:
+        model = BookFeedback
+        fields = [
+            "id",
+            "loanId",
+            "resourceId",
+            "borrowerId",
+            "borrowerName",
+            "borrowerEmail",
+            "learnedSomething",
+            "wouldRecommend",
+            "contentQuality",
+            "starRating",
+            "comment",
+            "submittedAt",
+        ]
+        read_only_fields = ["id", "loanId", "resourceId", "borrowerId", "borrowerName", "borrowerEmail", "submittedAt"]
+
+
+class BookFeedbackSubmissionSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    learnedSomething = serializers.ChoiceField(choices=BookFeedback.LearnedChoice.choices, source="learned_something")
+    wouldRecommend = serializers.ChoiceField(choices=BookFeedback.RecommendChoice.choices, source="would_recommend")
+    contentQuality = serializers.ChoiceField(choices=BookFeedback.QualityChoice.choices, source="content_quality")
+    starRating = serializers.IntegerField(source="star_rating", min_value=1, max_value=5)
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
 class SupportMessageSerializer(serializers.ModelSerializer):
@@ -349,6 +405,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class AuthSessionSerializer(serializers.Serializer):
     token = serializers.CharField()
     user = UserProfileSerializer()
+
+
+class StudentEmailLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
 
 
 class LibraryLoginSerializer(serializers.Serializer):

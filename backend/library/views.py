@@ -1,12 +1,14 @@
 import json
 from datetime import datetime
+from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Avg, Count, Prefetch, Q
 from django.db.models.deletion import ProtectedError
 from urllib.request import Request, urlopen
 from django.utils.text import slugify
@@ -20,22 +22,27 @@ from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token
 from django.utils import timezone
 
-from .models import BookCopy, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
+from .models import BookCopy, BookFeedback, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
 from .permissions import IsLibraryStaff, IsLibraryStaffOrApiKey
 from .serializers import (
     AdminLoginSerializer,
+    BookFeedbackSerializer,
+    BookFeedbackSubmissionSerializer,
     BookCopySerializer,
     BookRequestSerializer,
     CategorySerializer,
-    LibraryLoginSerializer,
     LoanSerializer,
     LoanEmailSerializer,
     ResourceSerializer,
     StudentDashboardSerializer,
-    StudentRegistrationSerializer,
+    StudentEmailLoginSerializer,
     SupportMessageSerializer,
     UserProfileSerializer,
     UserProfileUpdateSerializer,
+)
+from .student_auth import (
+    fetch_allowlisted_student,
+    sync_student_account_from_allowlist,
 )
 
 
@@ -43,6 +50,8 @@ CACHE_TTL = 120  # 2 minutes
 
 CACHE_KEY_CATEGORIES = "api:categories:list"
 CACHE_KEY_RESOURCES = "api:resources:list"
+FEEDBACK_TOKEN_SALT = "library.book-feedback"
+FEEDBACK_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 180
 
 
 def bust_categories_cache():
@@ -53,6 +62,49 @@ def bust_resources_cache():
     cache.delete(CACHE_KEY_RESOURCES)
     # Categories embed resourceCount so bust both when resources change.
     cache.delete(CACHE_KEY_CATEGORIES)
+
+
+def build_feedback_token(loan: Loan) -> str:
+    return signing.dumps(
+        {
+            "loan_id": loan.id,
+            "email": (loan.borrower_email or "").strip().lower(),
+        },
+        salt=FEEDBACK_TOKEN_SALT,
+    )
+
+
+def resolve_feedback_loan_from_token(token: str) -> Loan:
+    try:
+        payload = signing.loads(token, salt=FEEDBACK_TOKEN_SALT, max_age=FEEDBACK_TOKEN_MAX_AGE_SECONDS)
+    except signing.BadSignature as exc:
+        raise ValidationError({"token": "This feedback link is invalid or has expired."}) from exc
+
+    loan_id = str(payload.get("loan_id") or "").strip()
+    email = str(payload.get("email") or "").strip().lower()
+    if not loan_id:
+        raise ValidationError({"token": "This feedback link is invalid."})
+
+    loan = Loan.objects.select_related("borrower", "book_copy", "book_copy__resource").filter(pk=loan_id).first()
+    if loan is None:
+        raise ValidationError({"token": "This feedback request could not be found."})
+
+    if email and (loan.borrower_email or "").strip().lower() != email:
+        raise ValidationError({"token": "This feedback link does not match the borrower record."})
+
+    if loan.loan_type != Loan.LoanType.BORROW:
+        raise ValidationError({"token": "Feedback is only available for completed borrowing records."})
+
+    if loan.status != Loan.LoanStatus.RETURNED:
+        raise ValidationError({"token": "Feedback becomes available after the book has been marked as returned."})
+
+    return loan
+
+
+def build_feedback_url(loan: Loan) -> str:
+    base_url = getattr(settings, "FRONTEND_BASE_URL", "http://127.0.0.1:3000").strip().rstrip("/")
+    token = build_feedback_token(loan)
+    return f"{base_url}/feedback?token={quote(token, safe='')}"
 
 
 def send_library_webhook(payload: dict[str, object]) -> bool:
@@ -80,6 +132,15 @@ def current_authenticated_user(request):
     if user and user.is_authenticated:
         return user
     return None
+
+
+def build_auth_session_payload(user):
+    profile = ensure_user_profile(user)
+    token, _ = Token.objects.get_or_create(user=user)
+    return {
+        "token": token.key,
+        "user": UserProfileSerializer(profile).data,
+    }
 
 
 def populate_identity_from_account(
@@ -189,7 +250,24 @@ class ResourceViewSet(viewsets.ModelViewSet):
                 copies__loans__loan_type=Loan.LoanType.BORROW,
             ),
             distinct=True,
-        )
+        ),
+        feedback_total=Count("feedback_entries", distinct=True),
+        feedback_average_rating_value=Avg("feedback_entries__star_rating", distinct=True),
+        feedback_recommend_total=Count(
+            "feedback_entries",
+            filter=Q(feedback_entries__would_recommend=BookFeedback.RecommendChoice.YES),
+            distinct=True,
+        ),
+        feedback_learned_total=Count(
+            "feedback_entries",
+            filter=Q(
+                feedback_entries__learned_something__in=(
+                    BookFeedback.LearnedChoice.YES,
+                    BookFeedback.LearnedChoice.SOMEWHAT,
+                )
+            ),
+            distinct=True,
+        ),
     ).prefetch_related(
         Prefetch(
             "copies",
@@ -438,6 +516,8 @@ class LoanViewSet(viewsets.ModelViewSet):
                     "returnConditionNotes": updated_loan.return_condition_notes,
                     "loanId": updated_loan.id,
                     "copyNumber": updated_loan.book_copy.accession_number,
+                    "feedbackToken": build_feedback_token(updated_loan),
+                    "feedbackUrl": build_feedback_url(updated_loan),
                 }
             )
 
@@ -680,6 +760,75 @@ class LoanViewSet(viewsets.ModelViewSet):
         return Response({"detail": f"Email sent to {loan.borrower_email}."}, status=status.HTTP_200_OK)
 
 
+class BookFeedbackViewSet(viewsets.ModelViewSet):
+    queryset = BookFeedback.objects.select_related("loan", "resource", "borrower")
+    serializer_class = BookFeedbackSerializer
+
+    def get_permissions(self):
+        if self.action in {"create", "context"}:
+            return [AllowAny()]
+        return [IsLibraryStaff()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        resource_id = self.request.query_params.get("resourceId")
+        if resource_id:
+            queryset = queryset.filter(resource_id=resource_id)
+        return queryset
+
+    @action(detail=False, methods=["get"], permission_classes=[AllowAny], url_path="context")
+    def context(self, request):
+        token = str(request.query_params.get("token") or "").strip()
+        if not token:
+            raise ValidationError({"token": "Missing feedback token."})
+
+        loan = resolve_feedback_loan_from_token(token)
+        existing_feedback = BookFeedback.objects.select_related("loan", "resource", "borrower").filter(loan=loan).first()
+
+        borrower_name = loan.borrower_name
+        if not borrower_name and loan.borrower:
+            borrower_name = loan.borrower.get_full_name() or loan.borrower.get_username()
+
+        payload = {
+            "loanId": loan.id,
+            "resourceId": loan.book_copy.resource_id,
+            "bookTitle": loan.book_copy.resource.title,
+            "borrowerName": borrower_name,
+            "returnedAt": loan.returned_at.isoformat() if loan.returned_at else None,
+            "alreadySubmitted": existing_feedback is not None,
+            "feedback": BookFeedbackSerializer(existing_feedback).data if existing_feedback else None,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+    def create(self, request, *args, **kwargs):
+        serializer = BookFeedbackSubmissionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        loan = resolve_feedback_loan_from_token(serializer.validated_data["token"])
+        if BookFeedback.objects.filter(loan=loan).exists():
+            raise ValidationError({"detail": "Feedback has already been submitted for this returned book."})
+
+        now = timezone.now()
+        feedback = BookFeedback.objects.create(
+            id=f"fdb{int(now.timestamp() * 1000)}",
+            loan=loan,
+            resource=loan.book_copy.resource,
+            borrower=loan.borrower,
+            borrower_name=loan.borrower_name,
+            borrower_email=loan.borrower_email,
+            learned_something=serializer.validated_data["learned_something"],
+            would_recommend=serializer.validated_data["would_recommend"],
+            content_quality=serializer.validated_data["content_quality"],
+            star_rating=serializer.validated_data["star_rating"],
+            comment=(serializer.validated_data.get("comment") or "").strip(),
+            submitted_at=now,
+        )
+        bust_resources_cache()
+        response_serializer = self.get_serializer(feedback)
+        headers = self.get_success_headers(response_serializer.data)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
 class BookRequestViewSet(viewsets.ModelViewSet):
     queryset = BookRequest.objects.select_related("requester", "reviewed_by", "resource")
     serializer_class = BookRequestSerializer
@@ -811,30 +960,25 @@ class StudentLoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = LibraryLoginSerializer(data=request.data)
+        serializer = StudentEmailLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        profile_data = UserProfileSerializer(serializer.validated_data["profile"]).data
-        payload = {
-            "token": serializer.validated_data["token"].key,
-            "user": profile_data,
-        }
+        email = serializer.validated_data["email"]
+
+        try:
+            allowlisted_student = fetch_allowlisted_student(email)
+        except RuntimeError as exc:
+            raise ValidationError({"detail": "Student sign-in is not configured yet. Please contact the library team."}) from exc
+
+        if allowlisted_student is None:
+            raise ValidationError({"email": "This email address is not approved for the KBC library system."})
+
+        try:
+            user = sync_student_account_from_allowlist(allowlisted_student)
+        except ValueError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+
+        payload = build_auth_session_payload(user)
         return Response(payload, status=status.HTTP_200_OK)
-
-
-class StudentRegisterView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        serializer = StudentRegistrationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        profile = ensure_user_profile(user)
-        token, _ = Token.objects.get_or_create(user=user)
-        payload = {
-            "token": token.key,
-            "user": UserProfileSerializer(profile).data,
-        }
-        return Response(payload, status=status.HTTP_201_CREATED)
 
 
 class AuthMeView(APIView):

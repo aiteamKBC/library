@@ -120,8 +120,8 @@ function formatApiError(message: string) {
       // Fall through to the raw message.
     }
   }
-  if (trimmed.includes("Invalid credentials")) {
-    return "The email or password is incorrect.";
+  if (trimmed.includes("sign in directly")) {
+    return "Use your approved email address to sign in directly.";
   }
   if (trimmed.includes("library admin portal")) {
     return "This account should sign in through the Library Admin portal.";
@@ -129,8 +129,14 @@ function formatApiError(message: string) {
   if (trimmed.includes("student accounts only")) {
     return "This area is available to student accounts only.";
   }
-  if (trimmed.includes("An account with this email already exists")) {
-    return "An account with this email already exists.";
+  if (trimmed.includes("not approved")) {
+    return "This email address is not approved for the KBC Library system.";
+  }
+  if (trimmed.includes("no longer approved")) {
+    return "This email address is no longer approved for the KBC Library system.";
+  }
+  if (trimmed.includes("not configured yet")) {
+    return "Student sign-in is not fully configured yet. Please contact the library team.";
   }
   return trimmed || "We could not complete this action right now.";
 }
@@ -163,12 +169,10 @@ export default function AccountPage() {
     user,
     loading: sessionLoading,
     loginStudent,
-    registerStudent,
     updateProfile,
     logout,
   } = useLibrarySession();
   const isLibraryStaff = user ? ["admin", "librarian"].includes(user.role) : false;
-  const [mode, setMode] = useState<"login" | "register">("login");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState("");
   const [dashboard, setDashboard] = useState<StudentDashboard | null>(null);
@@ -190,15 +194,7 @@ export default function AccountPage() {
   const [hiddenLoanIds, setHiddenLoanIds] = useState<string[]>([]);
   const [hiddenRequestIds, setHiddenRequestIds] = useState<string[]>([]);
   const [loginForm, setLoginForm] = useState({
-    identifier: "",
-    password: "",
-  });
-  const [registerForm, setRegisterForm] = useState({
-    fullName: "",
     email: "",
-    phoneNumber: "",
-    password: "",
-    confirmPassword: "",
   });
   const [profileForm, setProfileForm] = useState({
     fullName: "",
@@ -275,61 +271,26 @@ export default function AccountPage() {
     return dashboard?.requests.filter((request) => !hidden.has(request.id)) ?? [];
   }, [dashboard, hiddenRequestIds]);
 
-  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (authSubmitting) return;
-    setAuthSubmitting(true);
-    setAuthError("");
-    try {
-      await loginStudent(loginForm.identifier.trim(), loginForm.password);
-      setLoginForm({ identifier: "", password: "" });
-      const state = location.state as { redirectTo?: string } | null;
-      if (state?.redirectTo) {
-        navigate(state.redirectTo, { replace: true });
-      }
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : "We could not sign you in.";
-      setAuthError(formatApiError(rawMessage));
-    } finally {
-      setAuthSubmitting(false);
+  const completeStudentSignIn = () => {
+    const state = location.state as { redirectTo?: string } | null;
+    if (state?.redirectTo) {
+      navigate(state.redirectTo, { replace: true });
     }
   };
 
-  const handleRegister = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (authSubmitting) return;
-    setAuthError("");
-
-    if (registerForm.password.length < 8) {
-      setAuthError("Please use a password with at least 8 characters.");
-      return;
-    }
-    if (registerForm.password !== registerForm.confirmPassword) {
-      setAuthError("The password confirmation does not match.");
-      return;
-    }
-
+    const email = loginForm.email.trim().toLowerCase();
+    if (!email) return;
     setAuthSubmitting(true);
+    setAuthError("");
     try {
-      await registerStudent({
-        fullName: registerForm.fullName.trim(),
-        email: registerForm.email.trim(),
-        phoneNumber: registerForm.phoneNumber.trim(),
-        password: registerForm.password,
-      });
-      setRegisterForm({
-        fullName: "",
-        email: "",
-        phoneNumber: "",
-        password: "",
-        confirmPassword: "",
-      });
-      const state = location.state as { redirectTo?: string } | null;
-      if (state?.redirectTo) {
-        navigate(state.redirectTo, { replace: true });
-      }
+      await loginStudent(email);
+      setLoginForm({ email: "" });
+      completeStudentSignIn();
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : "We could not create your account.";
+      const rawMessage = error instanceof Error ? error.message : "We could not sign you in.";
       setAuthError(formatApiError(rawMessage));
     } finally {
       setAuthSubmitting(false);
@@ -552,7 +513,7 @@ export default function AccountPage() {
                 Manage your library account in one place
               </h1>
               <p className="text-[#EEE7FF] text-base md:text-lg max-w-2xl leading-relaxed">
-                Sign in to save your details, track your loan requests, and manage library notifications without re-entering your information each time.
+                Use your Aptem email to access your library account and track your loans, requests and library updates in one place.
               </p>
             </div>
           </div>
@@ -568,17 +529,17 @@ export default function AccountPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-[#241453]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                      Why create an account?
+                      Why sign in with your Aptem email?
                     </h2>
-                    <p className="text-sm text-gray-500">A simpler experience for students, apprentices and the library team.</p>
+                    <p className="text-sm text-gray-500">Fast access for approved learners using only the email already listed by the college.</p>
                   </div>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   {[
-                    { icon: "ri-user-settings-line", title: "Saved Contact Details", text: "Your contact information can be reused for future loan requests and availability notifications." },
-                    { icon: "ri-bookmark-3-line", title: "Loan and Request Tracking", text: "View the status of your current requests, reservations and active loans in one place." },
-                    { icon: "ri-notification-3-line", title: "Availability Alerts", text: "Receive updates when a requested title becomes available." },
-                    { icon: "ri-shield-user-line", title: "Account-Linked Requests", text: "Your requests are linked to your account, making follow-up quicker and more accurate." },
+                    { icon: "ri-mail-check-line", title: "Approved Access Only", text: "Only Aptem email addresses listed by the college can access the library system." },
+                    { icon: "ri-shield-user-line", title: "Instant Sign-In", text: "Enter your Aptem email and the system signs you in immediately when the address is recognised." },
+                    { icon: "ri-bookmark-3-line", title: "Loan and Request Tracking", text: "See your borrow requests, return history and book suggestions in one place." },
+                    { icon: "ri-notification-3-line", title: "Availability Alerts", text: "Keep your activity linked to your student profile so follow-up stays simple." },
                   ].map((item) => (
                     <div key={item.title} className="rounded-2xl border border-[#F1E3CB] bg-[#FCFAF6] px-4 py-4">
                       <div className="w-10 h-10 rounded-xl bg-[#F3E9DA] text-[#241453] flex items-center justify-center mb-3">
@@ -593,35 +554,19 @@ export default function AccountPage() {
             </div>
 
             <div className="bg-white rounded-3xl border border-[#E9D9BD] p-6 md:p-8 shadow-sm">
-              <div className="inline-flex rounded-full border border-[#E9D9BD] bg-[#FCFAF6] p-1 mb-6">
-                <button
-                  type="button"
-                  onClick={() => { setMode("login"); setAuthError(""); }}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors cursor-pointer ${
-                    mode === "login" ? "bg-[#241453] text-white" : "text-[#241453]"
-                  }`}
-                >
-                  Sign In
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setMode("register"); setAuthError(""); }}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors cursor-pointer ${
-                    mode === "register" ? "bg-[#241453] text-white" : "text-[#241453]"
-                  }`}
-                >
-                  Create Account
-                </button>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#E9D9BD] bg-[#FCFAF6] px-3.5 py-1.5 mb-6">
+                <i className="ri-shield-keyhole-line text-[#442F73] text-sm" />
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#6E5A99]">
+                  Student Sign In
+                </span>
               </div>
 
               <div className="mb-6">
                 <h2 className="text-2xl font-bold text-[#241453]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                  {mode === "login" ? "Welcome back" : "Create your library account"}
+                  Sign in with your Aptem email
                 </h2>
                 <p className="text-sm text-gray-500 mt-1">
-                  {mode === "login"
-                    ? "Use your email address and password to access your library account."
-                    : "This account will be used for your library requests, notifications and profile details."}
+                  Enter the Aptem email address already listed in the college allowlist to access your student library account.
                 </p>
               </div>
 
@@ -637,106 +582,39 @@ export default function AccountPage() {
                 </div>
               )}
 
-              {mode === "login" ? (
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email Address or Username</label>
-                    <input
-                      required
-                      type="text"
-                      value={loginForm.identifier}
-                      onChange={(event) => setLoginForm((prev) => ({ ...prev, identifier: event.target.value }))}
-                      placeholder="Enter your email address"
-                      className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                    />
-                  </div>
-                  <div>
-                  
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Password</label>
-                    <input
-                      required
-                      type="password"
-                      value={loginForm.password}
-                      onChange={(event) => setLoginForm((prev) => ({ ...prev, password: event.target.value }))}
-                      placeholder="Enter your password"
-                      className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={authSubmitting}
-                    className="w-full py-3 rounded-xl bg-[#241453] text-white text-sm font-semibold cursor-pointer hover:bg-[#160a34] transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-                  >
-                    {authSubmitting ? "Signing In..." : "Sign In"}
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={handleRegister} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Full Name</label>
-                    <input
-                      required
-                      type="text"
-                      value={registerForm.fullName}
-                      onChange={(event) => setRegisterForm((prev) => ({ ...prev, fullName: event.target.value }))}
-                      placeholder="Your full name"
-                      className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email</label>
-                    <input
-                      required
-                      type="email"
-                      value={registerForm.email}
-                      onChange={(event) => setRegisterForm((prev) => ({ ...prev, email: event.target.value }))}
-                      placeholder="Enter your email address"
-                      className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone Number</label>
-                    <input
-                      type="tel"
-                      value={registerForm.phoneNumber}
-                      onChange={(event) => setRegisterForm((prev) => ({ ...prev, phoneNumber: event.target.value }))}
-                      placeholder="Optional"
-                      className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                    />
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">Password</label>
-                      <input
-                        required
-                        type="password"
-                        value={registerForm.password}
-                        onChange={(event) => setRegisterForm((prev) => ({ ...prev, password: event.target.value }))}
-                        placeholder="At least 8 characters"
-                        className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                      />
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Aptem Email Address</label>
+                  <input
+                    required
+                    type="email"
+                    value={loginForm.email}
+                    onChange={(event) => setLoginForm({ email: event.target.value })}
+                    placeholder="Enter your Aptem email"
+                    className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
+                  />
+                </div>
+                <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] px-4 py-4">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-white text-[#442F73] shadow-sm">
+                      <i className="ri-check-double-line text-base" />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">Confirm Password</label>
-                      <input
-                        required
-                        type="password"
-                        value={registerForm.confirmPassword}
-                        onChange={(event) => setRegisterForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
-                        placeholder="Repeat your password"
-                        className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
-                      />
+                      <p className="text-sm font-semibold text-[#241453]">Allowlisted Aptem email access</p>
+                      <p className="mt-1 text-sm leading-6 text-gray-500">
+                        If this Aptem email exists in the college allowlist, you will be signed in directly to your library account.
+                      </p>
                     </div>
                   </div>
-                  <button
-                    type="submit"
-                    disabled={authSubmitting}
-                    className="w-full py-3 rounded-xl bg-[#241453] text-white text-sm font-semibold cursor-pointer hover:bg-[#160a34] transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-                  >
-                    {authSubmitting ? "Creating Account..." : "Create Account"}
-                  </button>
-                </form>
-              )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={authSubmitting}
+                  className="w-full py-3 rounded-xl bg-[#241453] text-white text-sm font-semibold cursor-pointer hover:bg-[#160a34] transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {authSubmitting ? "Signing In..." : "Sign In"}
+                </button>
+              </form>
             </div>
           </div>
         </section>

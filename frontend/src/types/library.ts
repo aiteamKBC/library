@@ -41,6 +41,12 @@ export interface Resource {
   availabilityNote?: string;
   canBorrow?: boolean;
   canReserve?: boolean;
+  feedbackCount?: number;
+  feedbackAverageRating?: number | null;
+  feedbackRecommendCount?: number;
+  feedbackLearnedCount?: number;
+  feedbackRecommendRate?: number;
+  feedbackLearnedRate?: number;
 }
 
 export interface BookRequest {
@@ -105,6 +111,40 @@ export interface Loan {
   notes?: string;
 }
 
+export interface BookFeedback {
+  id: string;
+  loanId: string;
+  resourceId: string;
+  borrowerId?: number | null;
+  borrowerName?: string;
+  borrowerEmail?: string;
+  learnedSomething: "yes" | "somewhat" | "no";
+  wouldRecommend: "yes" | "maybe" | "no";
+  contentQuality: "excellent" | "good" | "fair" | "poor";
+  starRating: number;
+  comment?: string;
+  submittedAt: string;
+}
+
+export interface FeedbackContext {
+  loanId: string;
+  resourceId?: string;
+  bookTitle: string;
+  borrowerName?: string;
+  returnedAt?: string | null;
+  alreadySubmitted: boolean;
+  feedback?: BookFeedback | null;
+}
+
+export interface BookFeedbackSubmissionPayload {
+  token: string;
+  learnedSomething: "yes" | "somewhat" | "no";
+  wouldRecommend: "yes" | "maybe" | "no";
+  contentQuality: "excellent" | "good" | "fair" | "poor";
+  starRating: number;
+  comment?: string;
+}
+
 export interface AuthUser {
   username: string;
   email: string;
@@ -118,14 +158,6 @@ export interface AuthSession {
   token: string;
   user: AuthUser;
   next?: string;
-}
-
-export interface StudentRegistrationPayload {
-  fullName: string;
-  email: string;
-  password: string;
-  phoneNumber?: string;
-  studentIdCode?: string;
 }
 
 export interface StudentProfileUpdatePayload {

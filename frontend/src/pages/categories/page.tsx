@@ -22,7 +22,7 @@ export default function CategoriesPage() {
     <div className="min-h-screen bg-white">
       <Navbar />
 
-      <section className="relative pt-32 pb-16 overflow-hidden" style={{ background: "linear-gradient(135deg, #241453 0%, #442F73 60%, #644D93 100%)" }}>
+      <section className="relative overflow-hidden bg-[#241453] pt-32 pb-16">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-10 right-20 w-80 h-80 rounded-full bg-white/20 blur-3xl" />
           <div className="absolute bottom-0 left-10 w-60 h-60 rounded-full bg-[#CEA869]/20 blur-3xl" />
@@ -35,7 +35,10 @@ export default function CategoriesPage() {
                 <i className="ri-arrow-right-s-line" />
                 <span className="text-white/80">Categories</span>
               </nav>
-              <h1 className="text-4xl md:text-5xl font-bold text-white mb-3" style={{ fontFamily: "'Playfair Display', serif" }}>
+              <h1
+                className="text-3xl md:text-4xl font-bold text-white mb-3"
+                style={{ fontFamily: "'Playfair Display', serif" }}
+              >
                 Resource Categories
               </h1>
               <p className="text-white/70 text-base max-w-lg leading-relaxed">

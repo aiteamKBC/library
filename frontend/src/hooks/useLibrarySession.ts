@@ -9,13 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import { api, clearStoredAuthToken, hasStoredAuthToken } from "../lib/api";
-import type { AuthSession, AuthUser, StudentProfileUpdatePayload, StudentRegistrationPayload } from "../types/library";
+import type { AuthSession, AuthUser, StudentProfileUpdatePayload } from "../types/library";
 
 interface LibrarySessionContextValue {
   user: AuthUser | null;
   loading: boolean;
-  loginStudent: (identifier: string, password: string) => Promise<AuthSession>;
-  registerStudent: (payload: StudentRegistrationPayload) => Promise<AuthSession>;
+  loginStudent: (email: string) => Promise<AuthSession>;
   refreshSession: () => Promise<AuthUser | null>;
   updateProfile: (payload: StudentProfileUpdatePayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
@@ -51,14 +50,8 @@ export function LibrarySessionProvider({ children }: { children: ReactNode }) {
     void refreshSession();
   }, [refreshSession]);
 
-  const loginStudent = useCallback(async (identifier: string, password: string) => {
-    const session = await api.loginStudent(identifier, password);
-    setUser(session.user);
-    return session;
-  }, []);
-
-  const registerStudent = useCallback(async (payload: StudentRegistrationPayload) => {
-    const session = await api.registerStudent(payload);
+  const loginStudent = useCallback(async (email: string) => {
+    const session = await api.loginStudent(email);
     setUser(session.user);
     return session;
   }, []);
@@ -82,11 +75,10 @@ export function LibrarySessionProvider({ children }: { children: ReactNode }) {
     user,
     loading,
     loginStudent,
-    registerStudent,
     refreshSession,
     updateProfile,
     logout,
-  }), [loading, loginStudent, logout, refreshSession, registerStudent, updateProfile, user]);
+  }), [loading, loginStudent, logout, refreshSession, updateProfile, user]);
 
   return createElement(LibrarySessionContext.Provider, { value }, children);
 }

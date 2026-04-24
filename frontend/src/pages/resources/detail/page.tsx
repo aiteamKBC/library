@@ -141,6 +141,8 @@ export default function ResourceDetailPage() {
 
   const color = categories.find((category) => category.name === resource.category)?.color ?? "#442F73";
   const resourceMetrics = getResourceQueueMetrics(resource);
+  const feedbackCount = resource.feedbackCount ?? 0;
+  const averageRating = resource.feedbackAverageRating ?? null;
 
   return (
     <div className="min-h-screen bg-white">
@@ -262,6 +264,46 @@ export default function ResourceDetailPage() {
                   )}
                 </div>
               </div>
+
+              {feedbackCount > 0 && (
+                <div className="bg-white rounded-2xl border border-[#E9D9BD] p-6 md:p-8">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                    <div>
+                      <h2 className="font-bold text-[#241453] text-lg flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+                        <i className="ri-star-smile-line text-[#442F73]" />
+                        Student Feedback
+                      </h2>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Based on {feedbackCount} returned-book response{feedbackCount === 1 ? "" : "s"} from learners.
+                      </p>
+                    </div>
+                    {averageRating !== null && (
+                      <div className="inline-flex items-center gap-2 rounded-full border border-[#E9D9BD] bg-[#FCFAF6] px-4 py-2 text-sm font-semibold text-[#241453]">
+                        <i className="ri-star-fill text-[#B27715]" />
+                        {averageRating.toFixed(1)} / 5 average rating
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] px-4 py-4">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-gray-400 font-semibold">Learned Something</p>
+                      <p className="mt-2 text-2xl font-bold text-[#241453]">{resource.feedbackLearnedRate ?? 0}%</p>
+                      <p className="mt-1 text-xs text-gray-500">Said the book helped them learn something valuable.</p>
+                    </div>
+                    <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] px-4 py-4">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-gray-400 font-semibold">Would Recommend</p>
+                      <p className="mt-2 text-2xl font-bold text-[#241453]">{resource.feedbackRecommendRate ?? 0}%</p>
+                      <p className="mt-1 text-xs text-gray-500">Would recommend this title to other students.</p>
+                    </div>
+                    <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] px-4 py-4">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-gray-400 font-semibold">Responses</p>
+                      <p className="mt-2 text-2xl font-bold text-[#241453]">{feedbackCount}</p>
+                      <p className="mt-1 text-xs text-gray-500">Returned-book feedback submissions collected so far.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {related.length > 0 && <RelatedResources resources={related} />}
             </main>

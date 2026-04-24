@@ -10,6 +10,7 @@ const ResourceDetail = lazy(() => import("../pages/resources/detail/page"));
 const Support = lazy(() => import("../pages/support/page"));
 const Account = lazy(() => import("../pages/account/page"));
 const Admin = lazy(() => import("../pages/admin/page"));
+const Feedback = lazy(() => import("../pages/feedback/page"));
 
 const loadingFallback = (
   <div className="min-h-screen bg-[#F9F4EC] flex items-center justify-center">
@@ -78,6 +79,14 @@ const routes: RouteObject[] = [
     element: (
       <Suspense fallback={loadingFallback}>
         <Admin />
+      </Suspense>
+    ),
+  },
+  {
+    path: "/feedback",
+    element: (
+      <Suspense fallback={loadingFallback}>
+        <Feedback />
       </Suspense>
     ),
   },

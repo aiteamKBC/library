@@ -4,6 +4,7 @@ import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -289,6 +290,57 @@ class Resource(models.Model):
             return ""
         return "Please contact the library team for availability updates."
 
+    @property
+    def feedback_count(self) -> int:
+        annotated = getattr(self, "feedback_total", None)
+        if annotated is not None:
+            return int(annotated)
+        return self.feedback_entries.count()
+
+    @property
+    def feedback_average_rating(self) -> float | None:
+        annotated = getattr(self, "feedback_average_rating_value", None)
+        if annotated is not None:
+            return float(annotated) if annotated is not None else None
+        aggregate = self.feedback_entries.aggregate(models.Avg("star_rating"))
+        value = aggregate.get("star_rating__avg")
+        return float(value) if value is not None else None
+
+    @property
+    def feedback_recommend_count(self) -> int:
+        annotated = getattr(self, "feedback_recommend_total", None)
+        if annotated is not None:
+            return int(annotated)
+        return self.feedback_entries.filter(
+            would_recommend=BookFeedback.RecommendChoice.YES,
+        ).count()
+
+    @property
+    def feedback_learned_count(self) -> int:
+        annotated = getattr(self, "feedback_learned_total", None)
+        if annotated is not None:
+            return int(annotated)
+        return self.feedback_entries.filter(
+            learned_something__in=(
+                BookFeedback.LearnedChoice.YES,
+                BookFeedback.LearnedChoice.SOMEWHAT,
+            ),
+        ).count()
+
+    @property
+    def feedback_recommend_rate(self) -> int:
+        total = self.feedback_count
+        if total <= 0:
+            return 0
+        return round((self.feedback_recommend_count / total) * 100)
+
+    @property
+    def feedback_learned_rate(self) -> int:
+        total = self.feedback_count
+        if total <= 0:
+            return 0
+        return round((self.feedback_learned_count / total) * 100)
+
 
 class BookCopy(models.Model):
     class CopyStatus(models.TextChoices):
@@ -564,6 +616,49 @@ class NotificationLog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.loan_id} - {self.notification_type}"
+
+
+class BookFeedback(models.Model):
+    class LearnedChoice(models.TextChoices):
+        YES = "yes", "Yes"
+        SOMEWHAT = "somewhat", "Somewhat"
+        NO = "no", "No"
+
+    class RecommendChoice(models.TextChoices):
+        YES = "yes", "Yes"
+        MAYBE = "maybe", "Maybe"
+        NO = "no", "No"
+
+    class QualityChoice(models.TextChoices):
+        EXCELLENT = "excellent", "Excellent"
+        GOOD = "good", "Good"
+        FAIR = "fair", "Fair"
+        POOR = "poor", "Poor"
+
+    id = models.CharField(primary_key=True, max_length=50)
+    loan = models.OneToOneField(Loan, on_delete=models.CASCADE, related_name="feedback")
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name="feedback_entries")
+    borrower = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="library_feedback_entries",
+    )
+    borrower_name = models.CharField(max_length=120, blank=True)
+    borrower_email = models.EmailField(blank=True)
+    learned_something = models.CharField(max_length=20, choices=LearnedChoice.choices)
+    would_recommend = models.CharField(max_length=20, choices=RecommendChoice.choices)
+    content_quality = models.CharField(max_length=20, choices=QualityChoice.choices)
+    star_rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    comment = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-submitted_at"]
+
+    def __str__(self) -> str:
+        return f"{self.resource.title} feedback ({self.star_rating}★)"
 
 
 class BookRequest(models.Model):

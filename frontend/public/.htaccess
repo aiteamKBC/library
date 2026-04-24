@@ -1,0 +1,14 @@
+<IfModule LiteSpeed>
+RewriteEngine On
+
+# Let real files and directories load normally.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Do not rewrite backend/static/media routes handled by LiteSpeed contexts.
+RewriteRule ^(api|admin|static|media)(/.*)?$ - [L]
+
+# SPA fallback for React routes like /account and /feedback.
+RewriteRule ^ index.html [L]
+</IfModule>
