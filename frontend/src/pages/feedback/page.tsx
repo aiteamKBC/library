@@ -15,7 +15,7 @@ type FeedbackForm = {
 
 const learnedOptions = [
   { value: "yes", label: "Yes", description: "It gave me useful knowledge or ideas." },
-  { value: "somewhat", label: "Somewhat", description: "It helped a little, but not fully." },
+  { value: "somewhat", label: "A Little", description: "I picked up a few useful ideas." },
   { value: "no", label: "No", description: "It did not really help me learn." },
 ] as const;
 
@@ -65,7 +65,7 @@ function formatDate(date?: string | null) {
 function readChoiceLabel(value?: string) {
   const labels: Record<string, string> = {
     yes: "Yes",
-    somewhat: "Somewhat",
+    somewhat: "A Little",
     no: "No",
     maybe: "Maybe",
     excellent: "Excellent",

@@ -10,16 +10,6 @@ export default function StatsOverview({ onNavigate }: Props) {
   const categories = [...new Set(books.map((book) => book.category))];
   const activeLoansCount = loans.filter((loan) => ["requested", "borrowed", "reserved", "overdue"].includes(loan.status)).length;
   const openSupportCount = supportMessages.filter((message) => message.status !== "resolved").length;
-  const feedbackResponses = books.reduce((sum, book) => sum + (book.feedbackCount ?? 0), 0);
-  const totalRatingScore = books.reduce(
-    (sum, book) => sum + ((book.feedbackAverageRating ?? 0) * (book.feedbackCount ?? 0)),
-    0,
-  );
-  const recommendResponses = books.reduce((sum, book) => sum + (book.feedbackRecommendCount ?? 0), 0);
-  const learnedResponses = books.reduce((sum, book) => sum + (book.feedbackLearnedCount ?? 0), 0);
-  const averageFeedbackRating = feedbackResponses > 0 ? totalRatingScore / feedbackResponses : null;
-  const recommendRate = feedbackResponses > 0 ? Math.round((recommendResponses / feedbackResponses) * 100) : 0;
-  const learnedRate = feedbackResponses > 0 ? Math.round((learnedResponses / feedbackResponses) * 100) : 0;
 
   const statCards = [
     { label: "Total Books", value: books.length, icon: "ri-book-3-line", color: "#442F73", bg: "#442F73" },
@@ -71,63 +61,6 @@ export default function StatsOverview({ onNavigate }: Props) {
           </button>
           )
         ))}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-gray-900 text-sm">Reader Feedback Snapshot</h3>
-            <p className="mt-1 text-xs text-gray-500">Signals collected after books are returned.</p>
-          </div>
-          <button
-            onClick={() => onNavigate("history")}
-            className="text-xs text-[#442F73] font-semibold hover:underline cursor-pointer"
-          >
-            View history
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="grid gap-4 md:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="rounded-2xl border border-gray-100 bg-[#FCFAF6] p-4 animate-pulse">
-                <div className="h-3 w-24 rounded bg-gray-100" />
-                <div className="mt-3 h-8 w-16 rounded bg-gray-100" />
-                <div className="mt-2 h-3 w-20 rounded bg-gray-100" />
-              </div>
-            ))}
-          </div>
-        ) : feedbackResponses > 0 ? (
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Responses</p>
-              <p className="mt-3 text-3xl font-bold text-[#241453]">{feedbackResponses}</p>
-              <p className="mt-2 text-xs text-gray-500">Completed book feedback forms.</p>
-            </div>
-            <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Average Rating</p>
-              <p className="mt-3 text-3xl font-bold text-[#241453]">{averageFeedbackRating?.toFixed(1) ?? "-"}</p>
-              <p className="mt-2 text-xs text-gray-500">Weighted across all returned-book feedback.</p>
-            </div>
-            <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Would Recommend</p>
-              <p className="mt-3 text-3xl font-bold text-[#241453]">{recommendRate}%</p>
-              <p className="mt-2 text-xs text-gray-500">Students who would recommend the book.</p>
-            </div>
-            <div className="rounded-2xl border border-[#E9D9BD] bg-[#FCFAF6] p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Learned Something</p>
-              <p className="mt-3 text-3xl font-bold text-[#241453]">{learnedRate}%</p>
-              <p className="mt-2 text-xs text-gray-500">Said the book helped them learn something valuable.</p>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-[#E9D9BD] bg-[#F9F4EC] px-4 py-5">
-            <p className="text-sm font-semibold text-[#241453]">No reader feedback yet</p>
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              Feedback metrics will appear here after returned-book emails start sending students to the new feedback form.
-            </p>
-          </div>
-        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-6">

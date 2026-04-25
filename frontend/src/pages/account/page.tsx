@@ -266,6 +266,7 @@ export default function AccountPage() {
     const hidden = new Set(hiddenLoanIds);
     return dashboard?.loans.filter((loan) => !hidden.has(loan.id)) ?? [];
   }, [dashboard, hiddenLoanIds]);
+  const shouldStretchBorrowingCard = dashboardLoading || visibleLoans.length > 0;
   const visibleBookRequests = useMemo(() => {
     const hidden = new Set(hiddenRequestIds);
     return dashboard?.requests.filter((request) => !hidden.has(request.id)) ?? [];
@@ -775,7 +776,7 @@ export default function AccountPage() {
                 </form>
             </div>
 
-            <div className="rounded-3xl bg-white border border-[#E9D9BD] p-6 md:p-7 shadow-sm flex flex-col md:min-h-[620px] xl:min-h-[760px]">
+            <div className={`rounded-3xl bg-white border border-[#E9D9BD] p-6 md:p-7 shadow-sm flex flex-col ${shouldStretchBorrowingCard ? "md:min-h-[620px] xl:min-h-[760px]" : ""}`}>
                 <div className="flex items-center justify-between gap-4 mb-6">
                   <div>
                     <h2 className="text-xl font-bold text-[#241453]" style={{ fontFamily: "'Playfair Display', serif" }}>

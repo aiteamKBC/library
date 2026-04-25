@@ -15,6 +15,7 @@ export default function ResourceDetailPage() {
   const { books, categories, loading } = useAdminData();
   const { user } = useLibrarySession();
   const [requestOpen, setRequestOpen] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   const resource = useMemo(() => books.find((r) => r.id === id), [books, id]);
 
@@ -68,8 +69,8 @@ export default function ResourceDetailPage() {
         </section>
         <section className="py-12 bg-[#F9F4EC]">
           <div className="max-w-7xl mx-auto px-4 md:px-6">
-            <div className="flex flex-col lg:flex-row gap-8 items-start">
-              <main className="flex-1 min-w-0">
+          <div className="flex flex-col gap-8 items-stretch lg:flex-row lg:items-start">
+            <main className="w-full flex-1 min-w-0">
                 <div className="bg-white rounded-2xl border border-[#E9D9BD] p-6 md:p-8 animate-pulse">
                   <div className="h-6 w-40 rounded bg-[#F1E3CB] mb-5" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -143,6 +144,11 @@ export default function ResourceDetailPage() {
   const resourceMetrics = getResourceQueueMetrics(resource);
   const feedbackCount = resource.feedbackCount ?? 0;
   const averageRating = resource.feedbackAverageRating ?? null;
+  const resourceType = resource.type ?? "Book";
+  const hasLongDescription = (resource.description?.trim().length ?? 0) > 320;
+  const mobileDescriptionStyle = descriptionExpanded
+    ? undefined
+    : { maxHeight: "14rem", overflow: "hidden" as const };
 
   return (
     <div className="min-h-screen bg-white">
@@ -151,10 +157,20 @@ export default function ResourceDetailPage() {
       <section className="relative pt-28 pb-12 overflow-hidden" style={{ background: "linear-gradient(135deg, #241453 0%, #442F73 60%, #644D93 100%)" }}>
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-10 right-20 w-96 h-96 rounded-full bg-white/20 blur-3xl" />
-          <div className="absolute bottom-0 left-10 w-72 h-72 rounded-full bg-[#CEA869]/20 blur-3xl" />
+        <div className="absolute bottom-0 left-10 w-72 h-72 rounded-full bg-[#CEA869]/20 blur-3xl" />
         </div>
         <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-6">
-          <nav className="flex items-center gap-2 text-white/50 text-xs mb-5 flex-wrap">
+          <nav className="mb-5 flex justify-center md:hidden">
+            <Link
+              to="/resources"
+              className="inline-flex items-center gap-2 rounded-full bg-white/12 px-4 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(12,8,31,0.2)] backdrop-blur-sm transition-colors duration-200 hover:bg-white/18"
+            >
+              <i className="ri-arrow-left-line" />
+              Back to Books
+            </Link>
+          </nav>
+
+          <nav className="hidden md:flex items-center gap-2 text-white/50 text-xs mb-5 flex-wrap">
             <Link to="/" className="hover:text-white transition-colors duration-200 cursor-pointer">Home</Link>
             <i className="ri-arrow-right-s-line" />
             <Link to="/resources" className="hover:text-white transition-colors duration-200 cursor-pointer">Books</Link>
@@ -164,29 +180,106 @@ export default function ResourceDetailPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div className="lg:col-span-2">
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                <span
-                  className="px-3 py-1 rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: `${color}20`, color: "#fff", border: "1px solid rgba(255,255,255,0.15)" }}
-                >
-                  {resource.category}
-                </span>
-                <span className="px-3 py-1 rounded-full text-xs font-medium bg-white/10 text-white/80">
-                  Book
-                </span>
+              <div className="lg:hidden rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04))] p-4 shadow-[0_24px_70px_rgba(10,6,27,0.24)] ring-1 ring-black/10 backdrop-blur-md">
+                <div className="flex items-start gap-4">
+                  <div
+                    className="h-36 w-28 shrink-0 rounded-[22px] border border-white/15 shadow-[0_16px_40px_rgba(10,6,27,0.25)]"
+                    style={{ background: `linear-gradient(145deg, ${color}55, ${color})` }}
+                  >
+                    {resource.coverImage ? (
+                      <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[22px] bg-white p-3">
+                        <img
+                          src={resource.coverImage}
+                          alt={`Cover of ${resource.title}`}
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative flex h-full w-full flex-col justify-end overflow-hidden rounded-[22px] p-3">
+                        <div className="absolute left-0 top-0 bottom-0 w-4 bg-black/10" />
+                        <i className="ri-book-3-line mb-3 text-3xl text-white/70" />
+                        <p className="line-clamp-3 text-xs font-semibold leading-snug text-white">{resource.title}</p>
+                        <p className="mt-1 line-clamp-2 text-[11px] text-white/65">{resource.author}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className="rounded-full px-3 py-1 text-[11px] font-semibold"
+                        style={{ backgroundColor: `${color}20`, color: "#fff", border: "1px solid rgba(255,255,255,0.15)" }}
+                      >
+                        {resource.category}
+                      </span>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-medium text-white/80">
+                        {resourceType}
+                      </span>
+                    </div>
+
+                    <h1 className="mt-4 text-[1.7rem] font-bold leading-[1.08] text-white" style={{ fontFamily: "'Playfair Display', serif" }}>
+                      {resource.title}
+                    </h1>
+                    <p className="mt-2 text-sm text-white/75">
+                      <span className="text-white/50">by</span> <span className="font-medium text-white/90">{resource.author}</span>
+                    </p>
+
+                    {feedbackCount > 0 && averageRating !== null && (
+                      <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white/90">
+                        <i className="ri-star-fill text-[#CEA869]" />
+                        {averageRating.toFixed(1)} / 5 from {feedbackCount} response{feedbackCount === 1 ? "" : "s"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {resource.description && (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/10 p-4">
+                    <p
+                      className="text-sm leading-7 text-[#F5EEDB]"
+                      style={mobileDescriptionStyle}
+                    >
+                      {resource.description}
+                    </p>
+                    {hasLongDescription && (
+                      <button
+                        type="button"
+                        onClick={() => setDescriptionExpanded((current) => !current)}
+                        className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-[#F6D79B] transition-colors duration-200 hover:text-white"
+                      >
+                        {descriptionExpanded ? "Show less" : "Read full summary"}
+                        <i className={descriptionExpanded ? "ri-arrow-up-s-line" : "ri-arrow-down-s-line"} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <h1 className="text-3xl md:text-4xl font-bold text-white mb-3 leading-snug" style={{ fontFamily: "'Playfair Display', serif" }}>
-                {resource.title}
-              </h1>
-              <p className="text-white/70 text-sm mb-2">
-                <span className="text-white/50">by</span> <span className="text-white/90 font-medium">{resource.author}</span>
-              </p>
-              {resource.description && (
-                <p className="text-[#F3E9DA] text-sm leading-7 max-w-2xl mt-4">
-                  {resource.description}
+              <div className="hidden lg:block">
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-semibold"
+                    style={{ backgroundColor: `${color}20`, color: "#fff", border: "1px solid rgba(255,255,255,0.15)" }}
+                  >
+                    {resource.category}
+                  </span>
+                  <span className="px-3 py-1 rounded-full text-xs font-medium bg-white/10 text-white/80">
+                    {resourceType}
+                  </span>
+                </div>
+
+                <h1 className="text-3xl md:text-4xl font-bold text-white mb-3 leading-snug" style={{ fontFamily: "'Playfair Display', serif" }}>
+                  {resource.title}
+                </h1>
+                <p className="text-white/70 text-sm mb-2">
+                  <span className="text-white/50">by</span> <span className="text-white/90 font-medium">{resource.author}</span>
                 </p>
-              )}
+                {resource.description && (
+                  <p className="text-[#F3E9DA] text-sm leading-7 max-w-2xl mt-4">
+                    {resource.description}
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="hidden lg:flex justify-end">
@@ -218,8 +311,8 @@ export default function ResourceDetailPage() {
 
       <section className="py-12 bg-[#F9F4EC]">
         <div className="max-w-7xl mx-auto px-4 md:px-6">
-          <div className="flex flex-col lg:flex-row gap-8 items-start">
-            <main className="flex-1 min-w-0 space-y-6">
+          <div className="flex flex-col gap-8 items-stretch lg:flex-row lg:items-start">
+            <main className="w-full flex-1 min-w-0 space-y-6">
               <div className="bg-white rounded-2xl border border-[#E9D9BD] p-6 md:p-8">
                 <h2 className="font-bold text-[#241453] text-lg mb-4 flex items-center gap-2" style={{ fontFamily: "'Playfair Display', serif" }}>
                   <i className="ri-information-line text-[#442F73]" />
