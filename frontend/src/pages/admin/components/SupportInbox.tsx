@@ -3,12 +3,25 @@ import { useAdminData } from "../../../hooks/useAdminData";
 import type { SupportMessage } from "../../../types/library";
 
 const STATUS_TABS = ["all", "new", "in_progress", "resolved"] as const;
+const ADMIN_GMAIL_ACCOUNT = "Youmna@kentbusinesscollege.com";
 
 const statusStyles: Record<SupportMessage["status"], string> = {
   new: "bg-amber-50 text-amber-700 border border-amber-200",
   in_progress: "bg-sky-50 text-sky-700 border border-sky-200",
   resolved: "bg-emerald-50 text-emerald-700 border border-emerald-200",
 };
+
+function buildGmailComposeUrl(message: SupportMessage) {
+  const params = new URLSearchParams({
+    authuser: ADMIN_GMAIL_ACCOUNT,
+    view: "cm",
+    fs: "1",
+    to: message.email,
+    su: `Re: ${message.subject}`,
+  });
+
+  return `https://mail.google.com/mail/?${params.toString()}`;
+}
 
 export default function SupportInbox() {
   const { supportMessages, updateSupportMessage, deleteSupportMessage } = useAdminData();
@@ -41,6 +54,10 @@ export default function SupportInbox() {
 
   const handleStatus = (id: string, status: SupportMessage["status"]) => {
     void updateSupportMessage(id, { status });
+  };
+
+  const handleOpenGmail = (message: SupportMessage) => {
+    window.open(buildGmailComposeUrl(message), "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -94,7 +111,7 @@ export default function SupportInbox() {
                 <div className="min-w-0">
                   <p className="font-bold text-sm text-gray-900">{message.subject}</p>
                   <p className="mt-0.5 text-xs text-gray-400">
-                    {[message.fullName, message.email, message.course].filter(Boolean).join(" · ")}
+                    {[message.fullName, message.email, message.course].filter(Boolean).join(" - ")}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -116,14 +133,25 @@ export default function SupportInbox() {
               </button>
 
               {expanded === message.id && (
-                <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Message</p>
-                  <p className="text-sm leading-6 text-gray-600 whitespace-pre-line">{message.message}</p>
+                <div className="mt-3 space-y-3">
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Message</p>
+                    <p className="text-sm leading-6 text-gray-600 whitespace-pre-line">{message.message}</p>
+                  </div>
+                  <div className="rounded-xl border border-[#E9D9BD] bg-[#FFF9EF] px-4 py-3 text-xs text-[#8A5A14]">
+                    Clicking <span className="font-semibold">Send Email</span> opens Gmail for {ADMIN_GMAIL_ACCOUNT} with the user's email already filled in.
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="flex items-center gap-2 px-5 py-3 border-t border-gray-100 bg-white">
+            <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-t border-gray-100 bg-white">
+              <button
+                onClick={() => handleOpenGmail(message)}
+                className="px-3 py-1.5 rounded-lg bg-[#442F73] text-white text-xs font-semibold cursor-pointer"
+              >
+                Send Email
+              </button>
               {message.status !== "new" && (
                 <button
                   onClick={() => handleStatus(message.id, "new")}

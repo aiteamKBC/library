@@ -9,10 +9,12 @@ import CirculationHistory from "./components/CirculationHistoryManager";
 import RequestsInbox from "./components/RequestsInbox";
 import SupportInbox from "./components/SupportInbox";
 
+const SIDEBAR_LOAN_STATUSES = ["requested", "approved", "borrowed", "reserved", "overdue"] as const;
+
 const NAV = [
   { id: "overview", label: "Overview", icon: "ri-dashboard-3-line" },
   { id: "books", label: "Books & Resources", icon: "ri-book-shelf-line" },
-  { id: "loans", label: "Loans & Reservations", icon: "ri-bookmark-3-line" },
+  { id: "loans", label: "Loans & Reservations", icon: "ri-bookmark-3-line", badge: true },
   { id: "history", label: "History", icon: "ri-history-line" },
   { id: "requests", label: "Book Suggestions", icon: "ri-inbox-line", badge: true },
   { id: "support", label: "Support Inbox", icon: "ri-mail-unread-line", badge: true },
@@ -31,7 +33,9 @@ export default function AdminPage() {
   const { requests, loans, supportMessages, adminLoading, adminLoaded, loadAdminData } = useAdminData();
   const pendingCount = requests.filter((r) => r.status === "pending").length;
   const newSupportCount = supportMessages.filter((message) => message.status === "new").length;
-  const activeLoanCount = loans.filter((loan) => ["borrowed", "reserved", "overdue"].includes(loan.status)).length;
+  const activeLoanCount = loans.filter((loan) => (
+    loan.loanType !== "notify" && (SIDEBAR_LOAN_STATUSES as readonly string[]).includes(loan.status)
+  )).length;
 
   useEffect(() => {
     let cancelled = false;
@@ -243,6 +247,11 @@ export default function AdminPage() {
               {item.badge && item.id === "requests" && pendingCount > 0 && (
                 <span className="ml-auto bg-[#CEA869] text-[#241453] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                   {pendingCount}
+                </span>
+              )}
+              {item.badge && item.id === "loans" && activeLoanCount > 0 && (
+                <span className="ml-auto bg-[#CEA869] text-[#241453] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {activeLoanCount}
                 </span>
               )}
               {item.badge && item.id === "support" && newSupportCount > 0 && (
