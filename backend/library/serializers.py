@@ -536,6 +536,6 @@ class StudentDashboardSerializer(serializers.Serializer):
     supportMessages = SupportMessageSerializer(many=True)
 
 
-class LoanEmailSerializer(serializers.Serializer):
+class OutboundEmailSerializer(serializers.Serializer):
     subject = serializers.CharField(max_length=150)
     message = serializers.CharField(max_length=5000)

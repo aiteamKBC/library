@@ -998,7 +998,7 @@ export default function AccountPage() {
                         )}
                       </div>
                     ))}
-                  </div>
+                  </div>     
                 ) : (
                   <div className="rounded-2xl border border-dashed border-[#D9C6A5] bg-[#FCFAF6] px-5 py-6 text-sm text-gray-500">
                     {dashboard?.requests.length ? (
@@ -1023,7 +1023,7 @@ export default function AccountPage() {
 
         </div>
       </section>
-
+  
       {loanPendingConfirmation && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-[#E9D9BD] bg-white shadow-2xl">

@@ -32,7 +32,7 @@ from .serializers import (
     BookRequestSerializer,
     CategorySerializer,
     LoanSerializer,
-    LoanEmailSerializer,
+    OutboundEmailSerializer,
     ResourceSerializer,
     StudentDashboardSerializer,
     StudentEmailLoginSerializer,
@@ -746,7 +746,7 @@ class LoanViewSet(viewsets.ModelViewSet):
         if not loan.borrower_email:
             raise ValidationError({"borrowerEmail": "This loan does not have a borrower email address."})
 
-        serializer = LoanEmailSerializer(data=request.data)
+        serializer = OutboundEmailSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         send_mail(
@@ -940,7 +940,6 @@ class SupportMessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(resolved_by=request.user if next_status == SupportMessage.MessageStatus.RESOLVED else instance.resolved_by)
         return Response(serializer.data)
-
 
 class AdminLoginView(APIView):
     permission_classes = [AllowAny]
