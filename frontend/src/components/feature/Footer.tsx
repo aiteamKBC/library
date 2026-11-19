@@ -7,8 +7,12 @@ const quickLinks = [
   { label: "Help & Support", path: "/support" },
 ];
 
+import { libraryCalendarDate } from "../../lib/libraryDates";
+import { useDeviceTimezone } from "../../hooks/useLibrarySession";
+
 export default function Footer() {
-  const year = new Date().getFullYear();
+  useDeviceTimezone();
+  const year = libraryCalendarDate().slice(0, 4);
 
   return (
     <footer className="bg-[#241453] text-white" >

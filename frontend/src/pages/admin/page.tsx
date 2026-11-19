@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAdminData } from "../../hooks/useAdminData";
 import { api } from "../../lib/api";
+import { useDeviceTimezone } from "../../hooks/useLibrarySession";
 import StatsOverview from "./components/StatsOverview";
 import BooksManager from "./components/BooksManager";
 import LoansManager from "./components/LoansManager";
@@ -21,6 +22,7 @@ const NAV = [
 ];
 
 export default function AdminPage() {
+  useDeviceTimezone(); // Re-render timestamps after a device-zone change.
   const [authed, setAuthed] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [authSubmitting, setAuthSubmitting] = useState(false);

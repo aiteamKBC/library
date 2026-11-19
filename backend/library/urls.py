@@ -15,6 +15,8 @@ from .views import (
     StudentDashboardView,
     StudentLoginView,
     SupportMessageViewSet,
+    TimezoneObservationView,
+    TimezonePreferenceView,
 )
 
 router = DefaultRouter()
@@ -30,6 +32,8 @@ urlpatterns = [
     path("auth/login/", AdminLoginView.as_view(), name="auth-login"),
     path("auth/student-login/", StudentLoginView.as_view(), name="auth-student-login"),
     path("auth/me/", AuthMeView.as_view(), name="auth-me"),
+    path("auth/timezone-observation/", TimezoneObservationView.as_view(), name="auth-timezone-observation"),
+    path("auth/timezone-preference/", TimezonePreferenceView.as_view(), name="auth-timezone-preference"),
     path("auth/dashboard/", StudentDashboardView.as_view(), name="auth-dashboard"),
     path("auth/logout/", AdminLogoutView.as_view(), name="auth-logout"),
     *router.urls,

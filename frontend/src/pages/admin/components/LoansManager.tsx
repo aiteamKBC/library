@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
 import type { Loan } from "../../../types/library";
+import { api } from "../../../lib/api";
+import { formatLibraryDate as formatDate, formatLibraryTimestamp as formatTimestamp } from "../../../lib/libraryDates";
 
 type SubTab = "queue" | "active" | "notify";
 
@@ -36,13 +38,31 @@ const RETURN_CONDITION_OPTIONS = [
 
 type ReturnCondition = typeof RETURN_CONDITION_OPTIONS[number]["value"];
 
-function formatDate(date?: string | null) {
-  if (!date) return "-";
-  return new Date(date).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+function isValidDeliveryDays(value: string) {
+  return value.trim() !== "" && Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) <= 32767;
+}
+
+function ReturnDatePreview({ loan, deliveryDays, label = "Return due:" }: {
+  loan: Loan; deliveryDays: string; label?: string;
+}) {
+  const [result, setResult] = useState<{ key: string; text: string; error?: boolean } | null>(null);
+  const key = `${loan.id}:${deliveryDays}:${loan.dueDate}:${loan.status}:${loan.approvedAt}:${loan.borrowedAt}`;
+  const valid = isValidDeliveryDays(deliveryDays);
+  useEffect(() => {
+    if (!valid) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void api.previewLoanReturnDate(loan.id, Number(deliveryDays)).then(
+        (value) => { if (!cancelled) setResult({ key, text: formatDate(value.dueDate) }); },
+        (error: unknown) => { if (!cancelled) setResult({ key, text: formatApiError(error instanceof Error ? error.message : "Preview unavailable."), error: true }); },
+      );
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [key, valid, loan.id, deliveryDays]);
+  const current = result?.key === key ? result : null;
+  return <p aria-live="polite" className={`text-[11px] ${current?.error ? "text-red-600" : "text-[#442F73]"}`}>
+    {label} {valid ? current?.text ?? "Calculating…" : "-"}
+  </p>;
 }
 
 function flattenStructuredError(value: unknown): string | null {
@@ -131,6 +151,8 @@ function BorrowQueue() {
   const [editingDates, setEditingDates] = useState<string | null>(null);
   const [dateEdit, setDateEdit] = useState<DateEdit>({ requestedFrom: "", dueDate: "" });
   const [savingDates, setSavingDates] = useState(false);
+  const [deliveryDays, setDeliveryDays] = useState<Record<string, string>>({});
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const pending = useMemo(
     () => loans.filter((l) => l.status === "requested" && l.loanType !== "notify"),
@@ -154,9 +176,14 @@ function BorrowQueue() {
 
   const handleConfirm = async (loanId: string) => {
     if (confirming) return;
+    const days = deliveryDays[loanId] ?? "";
+    if (!isValidDeliveryDays(days)) return;
     setConfirming(loanId);
+    setConfirmError(null);
     try {
-      await approveLoan(loanId);
+      await approveLoan(loanId, Number(days));
+    } catch (error) {
+      setConfirmError(formatApiError(error instanceof Error ? error.message : "Unable to confirm this loan."));
     } finally {
       setConfirming(null);
     }
@@ -207,6 +234,7 @@ function BorrowQueue() {
 
   return (
     <div className="space-y-5">
+      {confirmError && <p role="alert" className="text-sm text-red-600">{confirmError}</p>}
       {groups.map((group) => (
         <div key={group.key} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           {/* Book header */}
@@ -234,7 +262,7 @@ function BorrowQueue() {
                       <div className="mt-3 ml-12 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="flex flex-col gap-0.5">
-                            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">From</label>
+                            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Requested From</label>
                             <input
                               type="date"
                               value={dateEdit.requestedFrom}
@@ -243,7 +271,7 @@ function BorrowQueue() {
                             />
                           </div>
                           <div className="flex flex-col gap-0.5">
-                            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Until</label>
+                            <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Requested Until</label>
                             <input
                               type="date"
                               value={dateEdit.dueDate}
@@ -296,13 +324,37 @@ function BorrowQueue() {
                       </p>
                     )}
                     <p className="mt-1 ml-12 text-[11px] text-gray-400">
-                      Requested {formatDate(loan.requestedAt)}
+                      Requested {formatTimestamp(loan.requestedAt)}
                     </p>
+                    <div className="mt-3 ml-12 space-y-1">
+                      <label htmlFor={`delivery-${loan.id}`} className="block text-xs font-semibold text-gray-600">Delivery days <span className="text-red-500">*</span></label>
+                      <input
+                        id={`delivery-${loan.id}`}
+                        form={`confirm-loan-${loan.id}`}
+                        required
+                        type="number" min={0} max={32767} step={1}
+                        placeholder="0"
+                        value={deliveryDays[loan.id] ?? ""}
+                        onChange={(e) => setDeliveryDays((prev) => ({ ...prev, [loan.id]: e.target.value }))}
+                        disabled={confirming === loan.id}
+                        className="w-24 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-[#442F73]"
+                      />
+                      <p className="text-[11px] text-gray-500">Required. Enter the total delivery days, or type 0 if already delivered. Return due: 30 days + delivery days from confirmation.</p>
+                      <ReturnDatePreview loan={loan} deliveryDays={deliveryDays[loan.id] ?? ""} label="If confirmed today:" />
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 sm:flex-none ml-12 sm:ml-0">
+                    <form
+                      id={`confirm-loan-${loan.id}`}
+                      className="contents"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleConfirm(loan.id);
+                      }}
+                    >
                     <button
-                      onClick={() => void handleConfirm(loan.id)}
+                      type="submit"
                       disabled={!!confirming || !!cancelling}
                       className="flex items-center gap-1.5 px-4 py-2 bg-[#442F73] hover:bg-[#241453] text-white text-xs font-semibold rounded-xl cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
                     >
@@ -318,6 +370,7 @@ function BorrowQueue() {
                         </>
                       )}
                     </button>
+                    </form>
                     <button
                       onClick={() => void handleCancel(loan.id)}
                       disabled={!!confirming || !!cancelling}
@@ -354,7 +407,7 @@ function BorrowQueue() {
 const ACTIVE_FILTER_TABS = ["all", ...ACTIVE_STATUSES] as const;
 
 interface ActiveDateEdit {
-  dueDate: string;
+  deliveryDays: string;
   notes: string;
 }
 
@@ -364,8 +417,9 @@ function ActiveLoans() {
   const [search, setSearch] = useState("");
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [editingLoan, setEditingLoan] = useState<string | null>(null);
-  const [activeEdit, setActiveEdit] = useState<ActiveDateEdit>({ dueDate: "", notes: "" });
+  const [activeEdit, setActiveEdit] = useState<ActiveDateEdit>({ deliveryDays: "", notes: "" });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [returningLoan, setReturningLoan] = useState<Loan | null>(null);
   const [returnCondition, setReturnCondition] = useState<ReturnCondition>("good");
   const [returnConditionNotes, setReturnConditionNotes] = useState("");
@@ -422,17 +476,22 @@ function ActiveLoans() {
 
   const openEdit = (loan: Loan) => {
     setEditingLoan(loan.id);
-    setActiveEdit({ dueDate: loan.dueDate ?? "", notes: loan.notes ?? "" });
+    setEditError(null);
+    setActiveEdit({ deliveryDays: loan.deliveryDays ? String(loan.deliveryDays) : "", notes: loan.notes ?? "" });
   };
 
   const handleSaveEdit = async (id: string) => {
+    if (!isValidDeliveryDays(activeEdit.deliveryDays)) return;
     setSavingEdit(true);
+    setEditError(null);
     try {
       await updateLoan(id, {
-        dueDate: activeEdit.dueDate || undefined,
+        deliveryDays: Number(activeEdit.deliveryDays),
         notes: activeEdit.notes,
       });
       setEditingLoan(null);
+    } catch (error) {
+      setEditError(formatApiError(error instanceof Error ? error.message : "Unable to update delivery days."));
     } finally {
       setSavingEdit(false);
     }
@@ -542,17 +601,29 @@ function ActiveLoans() {
               <BorrowerCard loan={loan} />
 
               {editingLoan === loan.id ? (
-                <div className="border border-[#442F73]/20 rounded-xl p-4 bg-[#442F73]/3 space-y-3">
+                <form
+                  className="border border-[#442F73]/20 rounded-xl p-4 bg-[#442F73]/3 space-y-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleSaveEdit(loan.id);
+                  }}
+                >
                   <p className="text-[10px] font-bold text-[#442F73] uppercase tracking-wide">Edit Loan Details</p>
                   <div className="flex flex-wrap gap-4">
                     <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Due Date</label>
+                      <label htmlFor={`active-delivery-${loan.id}`} className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Delivery Days <span className="text-red-500">*</span></label>
                       <input
-                        type="date"
-                        value={activeEdit.dueDate}
-                        onChange={(e) => setActiveEdit((p) => ({ ...p, dueDate: e.target.value }))}
+                        id={`active-delivery-${loan.id}`}
+                        type="number" min={0} max={32767} step={1}
+                        placeholder="0"
+                        required
+                        value={activeEdit.deliveryDays}
+                        onChange={(e) => setActiveEdit((p) => ({ ...p, deliveryDays: e.target.value }))}
                         className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-[#442F73] text-gray-700"
                       />
+                      <p className="text-[11px] text-gray-500">30 days + delivery days from the original confirmation.</p>
+                      <p className="text-[11px] text-gray-500">Required. Enter the total delivery days, or type 0 if already delivered. To change 2 days to 5 days, enter 5.</p>
+                      <ReturnDatePreview loan={loan} deliveryDays={activeEdit.deliveryDays} />
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
@@ -567,7 +638,7 @@ function ActiveLoans() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => void handleSaveEdit(loan.id)}
+                      type="submit"
                       disabled={savingEdit}
                       className="flex items-center gap-1 px-3 py-1.5 bg-[#442F73] hover:bg-[#241453] text-white text-xs font-semibold rounded-lg cursor-pointer transition-colors disabled:opacity-60"
                     >
@@ -575,19 +646,25 @@ function ActiveLoans() {
                       Save
                     </button>
                     <button
+                      type="button"
                       onClick={() => setEditingLoan(null)}
                       className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 rounded-lg cursor-pointer transition-colors"
                     >
                       Cancel
                     </button>
                   </div>
-                </div>
+                  {editError && <p role="alert" className="text-xs text-red-600">{editError}</p>}
+                </form>
               ) : (
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                     <div>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Delivery Days</p>
+                      <p className="mt-0.5 text-gray-600">{loan.deliveryDays ?? 0}</p>
+                    </div>
+                    <div>
                       <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Requested</p>
-                      <p className="mt-0.5 text-gray-600">{formatDate(loan.requestedAt)}</p>
+                      <p className="mt-0.5 text-gray-600">{formatTimestamp(loan.requestedAt)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Due Date</p>
@@ -598,7 +675,7 @@ function ActiveLoans() {
                     {loan.borrowedAt && (
                       <div>
                         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Borrowed</p>
-                        <p className="mt-0.5 text-gray-600">{formatDate(loan.borrowedAt)}</p>
+                        <p className="mt-0.5 text-gray-600">{formatTimestamp(loan.borrowedAt)}</p>
                       </div>
                     )}
                   </div>
@@ -955,7 +1032,7 @@ function NotifyList() {
                   {loan.notes && (
                     <p className="mt-1.5 ml-12 text-xs text-gray-400 italic line-clamp-2">"{loan.notes}"</p>
                   )}
-                  <p className="mt-1 ml-12 text-[11px] text-gray-400">Registered {formatDate(loan.requestedAt)}</p>
+                  <p className="mt-1 ml-12 text-[11px] text-gray-400">Registered {formatTimestamp(loan.requestedAt)}</p>
                 </div>
                 <div className="flex items-center gap-2 sm:flex-none ml-12 sm:ml-0">
                   <button

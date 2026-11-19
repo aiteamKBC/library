@@ -5,6 +5,7 @@ import i18n from "./i18n";
 import { AdminDataProvider } from "./hooks/useAdminData";
 import { LibrarySessionProvider } from "./hooks/useLibrarySession";
 import ScrollToTop from "./components/ScrollToTop";
+import TimezoneSettings from "./components/feature/TimezoneSettings";
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <AdminDataProvider>
           <BrowserRouter basename={__BASE_PATH__}>
             <ScrollToTop />
+            <TimezoneSettings />
             <AppRoutes />
           </BrowserRouter>
         </AdminDataProvider>

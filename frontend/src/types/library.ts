@@ -103,7 +103,9 @@ export interface Loan {
   approvedAt?: string | null;
   borrowedAt?: string | null;
   dueDate?: string | null;
+  deliveryDays?: number;
   returnedAt?: string | null;
+  returnDaysLate?: number | null;
   returnCondition?: "good" | "worn" | "damaged" | "torn" | null;
   returnConditionNotes?: string;
   returnEvidence?: string | null;
@@ -152,6 +154,10 @@ export interface AuthUser {
   role: "student" | "librarian" | "admin";
   phone_number?: string;
   student_id_code?: string;
+  timeZone?: string | null;
+  timeZoneSource?: "browser" | "manual" | "";
+  timeZoneUpdatedAt?: string | null;
+  timeZoneStatus?: "valid" | "missing" | "invalid";
 }
 
 export interface AuthSession {

@@ -1,0 +1,54 @@
+{
+  "admin_recipient": "Youmna@kentbusinesscollege.com",
+  "templates": {
+    "loan_submitted.student": {
+      "file": "loan_submitted_student.html",
+      "source_node": "loan_submitted",
+      "subject": "Your borrow request has been received — KBC Library",
+      "sender_name": null,
+      "recipient_source": "={{ $json.body.email }}"
+    },
+    "loan_submitted.admin": {
+      "file": "loan_submitted_admin.html",
+      "source_node": "library_borrow_request",
+      "subject": "New Borrow Request: {{ book_title }}",
+      "sender_name": null,
+      "recipient_source": "Youmna@kentbusinesscollege.com"
+    },
+    "borrow_confirmed.student": {
+      "file": "borrow_confirmed_student.html",
+      "source_node": "borrow_confirmed",
+      "subject": "Borrow approved: {{ book_title }} — KBC Library",
+      "sender_name": null,
+      "recipient_source": "={{ $json.body.email }}"
+    },
+    "loan_returned.student": {
+      "file": "loan_returned_student.html",
+      "source_node": "loan_returned",
+      "subject": "Thank you for returning \"{{ book_title }}\" — KBC Library",
+      "sender_name": null,
+      "recipient_source": "={{ $json.body.email }}"
+    },
+    "notify_available.student": {
+      "file": "notify_available_student.html",
+      "source_node": "notify_available",
+      "subject": "\"{{ book_title }}\" is now available — KBC Library",
+      "sender_name": null,
+      "recipient_source": "={{ $json.body.email }}"
+    },
+    "due_today.student": {
+      "file": "due_today_student.html",
+      "source_node": "Send Due Date Reminder",
+      "subject": "KBC Library Reminder",
+      "sender_name": "KBC Library",
+      "recipient_source": "={{ $json.borrower_email }}"
+    },
+    "overdue.student": {
+      "file": "overdue_student.html",
+      "source_node": "Send Overdue",
+      "subject": "Overdue Notice",
+      "sender_name": "KBC Library",
+      "recipient_source": "={{ $json.borrower_email }}"
+    }
+  }
+}

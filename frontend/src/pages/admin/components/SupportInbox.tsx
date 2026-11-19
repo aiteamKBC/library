@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { formatLibraryTimestamp } from "../../../lib/libraryDates";
 import type { SupportMessage } from "../../../types/library";
 
 const STATUS_TABS = ["all", "new", "in_progress", "resolved"] as const;
@@ -119,7 +120,7 @@ export default function SupportInbox() {
                     {message.status === "in_progress" ? "In Progress" : message.status}
                   </span>
                   <span className="text-xs text-gray-400">
-                    {new Date(message.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    {formatLibraryTimestamp(message.submittedAt)}
                   </span>
                 </div>
               </div>

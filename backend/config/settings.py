@@ -21,7 +21,11 @@ def load_env_file(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
-load_env_file(ENV_FILE)
+# The isolated test entry point sets this before importing any Django settings.
+# Never load a real .env or parse a configured database URL in that mode.
+ISOLATED_TESTS = os.getenv("LIBRARY_ISOLATED_TESTS") == "1"
+if not ISOLATED_TESTS:
+    load_env_file(ENV_FILE)
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -134,15 +138,79 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {
-    "default": database_config()
+    "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
+    if ISOLATED_TESTS else database_config()
 }
 
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "Africa/Cairo"
+TIME_ZONE = "Europe/London"
+# Retained for legacy operational dates and Resource.date_added's existing
+# default. This is not a viewer/recipient timezone. API DateTimes use UTC;
+# React uses the viewer's device. Changing this default needs separate review
+# of model defaults and the proposed policy metadata (no schema changes here).
 USE_I18N = True
 USE_TZ = True
+
+# Independent opt-ins; no credentials are inherited from n8n/SMTP/Azure.
+LIBRARY_EMAIL_PROVIDER = os.getenv("LIBRARY_EMAIL_PROVIDER", "gmail").strip().lower()
+LIBRARY_EMAIL_ENQUEUE_ENABLED = os.getenv("LIBRARY_EMAIL_ENQUEUE_ENABLED", "false").lower() == "true"
+LIBRARY_EMAIL_WORKER_ENABLED = os.getenv("LIBRARY_EMAIL_WORKER_ENABLED", "false").lower() == "true"
+LIBRARY_EMAIL_SCHEDULER_ENABLED = os.getenv("LIBRARY_EMAIL_SCHEDULER_ENABLED", "false").lower() == "true"
+LIBRARY_GRAPH_SEND_ENABLED = os.getenv("LIBRARY_GRAPH_SEND_ENABLED", "false").lower() == "true"
+LIBRARY_GRAPH_CREDENTIALS_APPROVED = os.getenv("LIBRARY_GRAPH_CREDENTIALS_APPROVED", "false").lower() == "true"
+LIBRARY_EMAIL_N8N_HANDOFF_CONFIRMED = os.getenv("LIBRARY_EMAIL_N8N_HANDOFF_CONFIRMED", "false").lower() == "true"
+# Staged template/recipient parity only; never enables a transport or sending.
+LIBRARY_EMAIL_N8N_COMPAT_ENABLED = os.getenv("LIBRARY_EMAIL_N8N_COMPAT_ENABLED", "false").lower() == "true"
+LIBRARY_EMAIL_OWNED_EVENTS = tuple(x.strip() for x in os.getenv("LIBRARY_EMAIL_OWNED_EVENTS", "").split(",") if x.strip())
+LIBRARY_EMAIL_ADMIN_USER_IDS = tuple(x.strip() for x in os.getenv("LIBRARY_EMAIL_ADMIN_USER_IDS", "").split(",") if x.strip())
+# Exact mailboxes only; an empty list denies every Graph recipient.
+LIBRARY_EMAIL_RECIPIENT_ALLOWLIST = tuple(x.strip() for x in os.getenv("LIBRARY_EMAIL_RECIPIENT_ALLOWLIST", "").split(",") if x.strip())
+LIBRARY_GRAPH_TENANT_ID = os.getenv("LIBRARY_GRAPH_TENANT_ID", "")
+LIBRARY_GRAPH_CLIENT_ID = os.getenv("LIBRARY_GRAPH_CLIENT_ID", "")
+LIBRARY_GRAPH_CLIENT_SECRET = os.getenv("LIBRARY_GRAPH_CLIENT_SECRET", "")
+LIBRARY_GRAPH_SENDER = os.getenv("LIBRARY_GRAPH_SENDER", "")
+# Optional Entra USER object ID for the sender mailbox when SMTP address != UPN.
+# Not the application/client ID or the enterprise application's object ID.
+LIBRARY_GRAPH_MAILBOX_ID = os.getenv("LIBRARY_GRAPH_MAILBOX_ID", "")
+LIBRARY_GRAPH_REPLY_TO = os.getenv("LIBRARY_GRAPH_REPLY_TO", "")
+LIBRARY_GMAIL_SEND_ENABLED = env_bool("LIBRARY_GMAIL_SEND_ENABLED", False)
+LIBRARY_GMAIL_CREDENTIALS_APPROVED = env_bool("LIBRARY_GMAIL_CREDENTIALS_APPROVED", False)
+LIBRARY_GMAIL_CLIENT_ID = os.getenv("LIBRARY_GMAIL_CLIENT_ID", "")
+LIBRARY_GMAIL_CLIENT_SECRET = os.getenv("LIBRARY_GMAIL_CLIENT_SECRET", "")
+LIBRARY_GMAIL_REFRESH_TOKEN = os.getenv("LIBRARY_GMAIL_REFRESH_TOKEN", "")
+# Explicit Google account and verified From identity (may be an approved send-as).
+LIBRARY_GMAIL_ACCOUNT_EMAIL = os.getenv("LIBRARY_GMAIL_ACCOUNT_EMAIL", "")
+LIBRARY_GMAIL_SENDER = os.getenv("LIBRARY_GMAIL_SENDER", "")
+LIBRARY_GMAIL_SENDER_NAME = os.getenv("LIBRARY_GMAIL_SENDER_NAME", "")
+LIBRARY_GMAIL_REPLY_TO = os.getenv("LIBRARY_GMAIL_REPLY_TO", "")
+# Accept the existing Google-only aliases without changing .env or credentials.
+if not ISOLATED_TESTS:
+    from library.gmail_oauth_config import resolve_google_config
+    _google_config, _google_sources = resolve_google_config()
+    if _google_config["client_id"]:
+        LIBRARY_GMAIL_CLIENT_ID = _google_config["client_id"]
+        LIBRARY_GMAIL_CLIENT_SECRET = _google_config["client_secret"]
+    del _google_config, _google_sources
+# Optional encrypted current-user vault. It changes credential values only, never
+# live gates, provider, event ownership, recipients or scheduling. No .env edit.
+LIBRARY_GMAIL_CREDENTIALS_FILE = os.getenv("LIBRARY_GMAIL_CREDENTIALS_FILE", "")
+if LIBRARY_GMAIL_CREDENTIALS_FILE and not ISOLATED_TESTS:
+    from library.gmail_credential_store import settings_from_vault
+    _gmail_vault_values = settings_from_vault(LIBRARY_GMAIL_CREDENTIALS_FILE)
+    for _gmail_name, _gmail_value in _gmail_vault_values.items():
+        if globals().get(_gmail_name) and globals()[_gmail_name] != _gmail_value:
+            raise ValueError("Conflicting Gmail vault and runtime configuration; review before startup.")
+        globals()[_gmail_name] = _gmail_value
+    del _gmail_vault_values, _gmail_name, _gmail_value
+LIBRARY_EMAIL_LEASE_SECONDS = 180
+LIBRARY_EMAIL_MAX_ATTEMPTS = 5
+# Optional proven London transition. Empty retains the original Cairo calendar
+# for new legacy confirmations; no historical transition date is invented.
+LIBRARY_LONDON_CUTOVER_AT = os.getenv("LIBRARY_LONDON_CUTOVER_AT", "")
+LIBRARY_USER_LOCAL_POLICY_ENABLED = env_bool("LIBRARY_USER_LOCAL_POLICY_ENABLED", False)
+LIBRARY_USER_LOCAL_CUTOVER_AT = os.getenv("LIBRARY_USER_LOCAL_CUTOVER_AT", "")
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

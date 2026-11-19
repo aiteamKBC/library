@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Footer from "../../components/feature/Footer";
 import Navbar from "../../components/feature/Navbar";
 import { api } from "../../lib/api";
+import { formatLibraryTimestamp } from "../../lib/libraryDates";
+import { useDeviceTimezone } from "../../hooks/useLibrarySession";
 import type { BookFeedback, BookFeedbackSubmissionPayload, FeedbackContext } from "../../types/library";
 
 type FeedbackForm = {
@@ -49,17 +51,6 @@ function extractErrorMessage(message: string) {
     }
   }
   return trimmed || "We could not load this feedback form right now.";
-}
-
-function formatDate(date?: string | null) {
-  if (!date) return null;
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 function readChoiceLabel(value?: string) {
@@ -143,6 +134,7 @@ function FeedbackSummary({ feedback }: { feedback: BookFeedback }) {
 }
 
 export default function FeedbackPage() {
+  useDeviceTimezone();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const [context, setContext] = useState<FeedbackContext | null>(null);
@@ -195,7 +187,7 @@ export default function FeedbackPage() {
     };
   }, [token]);
 
-  const returnDateLabel = useMemo(() => formatDate(context?.returnedAt), [context?.returnedAt]);
+  const returnDateLabel = formatLibraryTimestamp(context?.returnedAt, "") || null;
   const activeFeedback = submittedFeedback ?? context?.feedback ?? null;
 
   const handleSubmit = async (event: React.FormEvent) => {

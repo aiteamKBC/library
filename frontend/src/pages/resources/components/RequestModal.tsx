@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
 import { useLibrarySession } from "../../../hooks/useLibrarySession";
+import { formatLibraryDate, libraryCalendarDate } from "../../../lib/libraryDates";
 
 interface Props {
   onClose: () => void;
@@ -24,7 +25,7 @@ export default function RequestModal({
   const { addRequest, addLoan, categories } = useAdminData();
   const { user } = useLibrarySession();
   const [requestMode] = useState(mode);
-  const today = new Date().toISOString().split("T")[0];
+  const today = libraryCalendarDate();
   const categoryNames = categories.map((category) => category.name);
   const defaultCategory = categoryNames[0] ?? "";
   const [form, setForm] = useState({
@@ -93,11 +94,7 @@ export default function RequestModal({
   }[requestMode];
 
   const expectedDateLabel = expectedAvailableDate
-    ? new Date(expectedAvailableDate).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    })
+    ? formatLibraryDate(expectedAvailableDate)
     : null;
 
   const humanizeField = (key: string) => {
@@ -441,7 +438,7 @@ export default function RequestModal({
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">
                   <i className="ri-calendar-line mr-1 text-[#442F73]" />
-                  Borrowing Dates
+                  Requested Borrowing Dates
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -456,7 +453,7 @@ export default function RequestModal({
                     />
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-400 mb-1">Return Due Date</p>
+                    <p className="text-[10px] text-gray-400 mb-1">Preferred Return Date</p>
                     <input
                       required
                       type="date"
@@ -470,9 +467,10 @@ export default function RequestModal({
                 {form.neededFrom && form.neededUntil && new Date(form.neededUntil) > new Date(form.neededFrom) && (
                   <p className="text-[11px] text-[#442F73] mt-1 flex items-center gap-1">
                     <i className="ri-time-line" />
-                    {Math.ceil((new Date(form.neededUntil).getTime() - new Date(form.neededFrom).getTime()) / (1000 * 60 * 60 * 24))} days
+                    {Math.ceil((new Date(form.neededUntil).getTime() - new Date(form.neededFrom).getTime()) / (1000 * 60 * 60 * 24))} requested days
                   </p>
                 )}
+                <p className="mt-2 text-xs leading-5 text-[#442F73]">Your loan starts when the library confirms your request. The final return date is 30 days from confirmation, plus delivery days set by the library.</p>
                 <div className="mt-2.5 rounded-xl border border-amber-200 bg-[#FFF8EC] px-3 py-2.5">
                   <div className="flex items-start gap-2">
                     <i className="ri-alert-line text-amber-700 mt-0.5" />
