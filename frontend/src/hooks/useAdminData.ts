@@ -41,7 +41,7 @@ interface AdminDataContextValue {
   updateRequestStatus: (id: string, status: BookRequest["status"]) => Promise<void>;
   deleteRequest: (id: string) => Promise<void>;
   addLoan: (loan: Partial<Loan>) => Promise<Loan>;
-  approveLoan: (id: string) => Promise<Loan>;
+  approveLoan: (id: string, deliveryDays: number) => Promise<Loan>;
   updateLoan: (id: string, updates: Partial<Loan>, options?: { returnEvidenceFile?: File | null }) => Promise<void>;
   deleteLoan: (id: string) => Promise<void>;
   bulkDeleteLoans: (ids: string[]) => Promise<void>;
@@ -179,9 +179,9 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     return created;
   }, []);
 
-  const approveLoan = useCallback(async (id: string) => {
-    const approved = await api.approveLoan(id);
-    // Reload all loans: approving one request cancels the others server-side.
+  const approveLoan = useCallback(async (id: string, deliveryDays: number) => {
+    const approved = await api.approveLoan(id, deliveryDays);
+    // Refresh circulation and availability after confirmation.
     await reloadLoansAndResources();
     return approved;
   }, [reloadLoansAndResources]);
@@ -201,7 +201,7 @@ export function AdminDataProvider({ children }: { children: ReactNode }) {
     // (expectedAvailableDate on the resource is derived from loan.due_date).
     const affectsResource =
       (updates.status && STATUS_AFFECTS_AVAILABILITY.has(updates.status)) ||
-      "dueDate" in updates;
+      "dueDate" in updates || "deliveryDays" in updates;
     if (affectsResource) {
       const resources = await api.listResources();
       setBooks(resources);

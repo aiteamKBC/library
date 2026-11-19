@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from urllib.parse import quote
 
 from django.conf import settings
@@ -24,6 +23,7 @@ from django.utils import timezone
 
 from .models import BookCopy, BookFeedback, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
 from .permissions import IsLibraryStaff, IsLibraryStaffOrApiKey
+from .timezones import london_today
 from .serializers import (
     AdminLoginSerializer,
     BookFeedbackSerializer,
@@ -32,10 +32,13 @@ from .serializers import (
     BookRequestSerializer,
     CategorySerializer,
     LoanSerializer,
+    LoanApprovalSerializer,
     OutboundEmailSerializer,
     ResourceSerializer,
     StudentDashboardSerializer,
     StudentEmailLoginSerializer,
+    TimezoneObservationSerializer,
+    TimezonePreferenceSerializer,
     SupportMessageSerializer,
     UserProfileSerializer,
     UserProfileUpdateSerializer,
@@ -44,6 +47,7 @@ from .student_auth import (
     fetch_allowlisted_student,
     sync_student_account_from_allowlist,
 )
+from .timezone_preferences import save_own_timezone
 
 
 CACHE_TTL = 120  # 2 minutes
@@ -108,6 +112,11 @@ def build_feedback_url(loan: Loan) -> str:
 
 
 def send_library_webhook(payload: dict[str, object]) -> bool:
+    from .email_policy import routes_to_django
+    event = payload.get("event")
+    if routes_to_django("overdue" if event == "loan_overdue" else event):
+        # In particular, don't mark Notify as delivered before Graph accepts it.
+        return False
     webhook_url = getattr(settings, "N8N_LIBRARY_WEBHOOK_URL", "").strip()
     if not webhook_url:
         return False
@@ -296,8 +305,8 @@ class ResourceViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         payload = request.data.copy()
-        payload["id"] = payload.get("id") or f"r{int(datetime.now().timestamp() * 1000)}"
-        payload["dateAdded"] = payload.get("dateAdded") or datetime.now().date().isoformat()
+        payload["id"] = payload.get("id") or f"r{int(timezone.now().timestamp() * 1000)}"
+        payload["dateAdded"] = payload.get("dateAdded") or london_today().isoformat()
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
         inventory_count = serializer.validated_data.get("inventoryCount")
@@ -381,7 +390,7 @@ class LoanViewSet(viewsets.ModelViewSet):
         )
         now = timezone.now()
         payload["id"] = payload.get("id") or f"loan{int(now.timestamp() * 1000)}"
-        payload["requestedAt"] = payload.get("requestedAt") or now.isoformat()
+        payload["requestedAt"] = now.isoformat()
         if payload.get("status") != Loan.LoanStatus.RESERVED:
             payload["status"] = Loan.LoanStatus.REQUESTED
         resource_id = payload.get("resourceId")
@@ -433,7 +442,7 @@ class LoanViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        loan = serializer.save()
+        loan = serializer.save(requested_at=now)
         send_library_webhook(
             {
                 "event": "loan_submitted",
@@ -480,6 +489,7 @@ class LoanViewSet(viewsets.ModelViewSet):
             (next_status and next_status != previous_status)
             or "dueDate" in payload
             or "due_date" in payload
+            or "deliveryDays" in payload
         ):
             bust_resources_cache()
 
@@ -632,15 +642,16 @@ class LoanViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], permission_classes=[IsLibraryStaffOrApiKey])
     def process_overdue(self, request):
-        today = timezone.now().date()
         overdue_loans = Loan.objects.filter(
             status=Loan.LoanStatus.BORROWED,
-            due_date__lte=today,
+            due_date__isnull=False, returned_at__isnull=True,
         ).select_related("book_copy", "book_copy__resource")
 
         results = []
         now = timezone.now()
         for loan in overdue_loans:
+            if loan.due_date >= loan.calendar_today(now):
+                continue
             loan.status = Loan.LoanStatus.OVERDUE
             loan.save(update_fields=["status"])
             send_library_webhook(
@@ -684,6 +695,8 @@ class LoanViewSet(viewsets.ModelViewSet):
         concurrent approvals can safely consume different copies without
         double-assigning the same accession number.
         """
+        approval = LoanApprovalSerializer(data=request.data)
+        approval.is_valid(raise_exception=True)
         loan = self.get_object()
         if loan.status != Loan.LoanStatus.REQUESTED:
             raise ValidationError({"status": "Only loans with status 'requested' can be approved through this action."})
@@ -720,8 +733,13 @@ class LoanViewSet(viewsets.ModelViewSet):
             loan.approved_at = now
             loan.borrowed_at = loan.borrowed_at or now
             loan.approved_by = request.user
-            loan.save()
+            loan.delivery_days = approval.validated_data["deliveryDays"]
+            try:
+                loan.save()
+            except DjangoValidationError as exc:
+                raise ValidationError(exc.message_dict) from exc
 
+        bust_resources_cache()
         send_library_webhook(
             {
                 "event": "borrow_confirmed",
@@ -740,6 +758,17 @@ class LoanViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(loan)
         return Response(serializer.data)
 
+    @action(detail=True, methods=["get"], permission_classes=[IsLibraryStaff], url_path="return-date-preview")
+    def return_date_preview(self, request, pk=None):
+        loan = self.get_object()
+        values = LoanApprovalSerializer(data=request.query_params)
+        values.is_valid(raise_exception=True)
+        try:
+            due_date = loan.preview_due_date(values.validated_data["deliveryDays"])
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
+        return Response({"dueDate": due_date.isoformat()}, headers={"Cache-Control": "no-store"})
+
     @action(detail=True, methods=["post"], permission_classes=[IsLibraryStaff])
     def send_email(self, request, pk=None):
         loan = self.get_object()
@@ -748,6 +777,17 @@ class LoanViewSet(viewsets.ModelViewSet):
 
         serializer = OutboundEmailSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        from .email_policy import enqueue_enabled
+        if enqueue_enabled():
+            from .email_events import enqueue_manual
+            try:
+                row = enqueue_manual(loan, subject=serializer.validated_data["subject"],
+                    message=serializer.validated_data["message"], request_id=serializer.validated_data.get("requestId"))
+            except DjangoValidationError as exc:
+                raise ValidationError(exc.messages) from exc
+            return Response({"detail": "Email queued for processing, not yet delivered.",
+                             "messageId": str(row.pk), "status": row.status}, status=status.HTTP_202_ACCEPTED)
 
         send_mail(
             subject=serializer.validated_data["subject"],
@@ -851,13 +891,13 @@ class BookRequestViewSet(viewsets.ModelViewSet):
             phone_key="studentPhone",
             student_id_key="studentId",
         )
-        now = datetime.now().astimezone()
+        now = timezone.now()
         payload["id"] = payload.get("id") or f"req{int(now.timestamp() * 1000)}"
-        payload["submittedAt"] = payload.get("submittedAt") or now.isoformat()
+        payload["submittedAt"] = now.isoformat()
         payload["status"] = payload.get("status") or BookRequest.RequestStatus.PENDING
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        book_request = serializer.save()
+        book_request = serializer.save(submitted_at=now)
         send_library_webhook(
             {
                 "event": "book_request_submitted",
@@ -919,13 +959,13 @@ class SupportMessageViewSet(viewsets.ModelViewSet):
             name_key="fullName",
             email_key="email",
         )
-        now = datetime.now().astimezone()
+        now = timezone.now()
         payload["id"] = payload.get("id") or f"msg{int(now.timestamp() * 1000)}"
-        payload["submittedAt"] = payload.get("submittedAt") or now.isoformat()
+        payload["submittedAt"] = now.isoformat()
         payload["status"] = payload.get("status") or SupportMessage.MessageStatus.NEW
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        serializer.save(submitted_at=now)
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -978,6 +1018,35 @@ class StudentLoginView(APIView):
 
         payload = build_auth_session_payload(user)
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class TimezoneObservationView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        observed_at = timezone.now()
+        values = TimezoneObservationSerializer(data=request.data)
+        values.is_valid(raise_exception=True)
+        profile, outcome = save_own_timezone(request.user, values.validated_data["timeZone"], source="browser", observed_at=observed_at)
+        return Response({
+            "observedTimeZone": values.validated_data["timeZone"],
+            "savedTimeZone": profile.time_zone, "saved": outcome == "saved", "status": outcome,
+            "source": profile.time_zone_source, "updatedAt": profile.time_zone_updated_at.isoformat(),
+        }, headers={"Cache-Control": "no-store"})
+
+
+class TimezonePreferenceView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request):
+        observed_at = timezone.now()
+        values = TimezonePreferenceSerializer(data=request.data)
+        values.is_valid(raise_exception=True)
+        profile, outcome = save_own_timezone(request.user, values.validated_data["timeZone"],
+            source=values.validated_data["source"], observed_at=observed_at, explicit=True)
+        return Response({"user": UserProfileSerializer(profile).data, "status": outcome}, headers={"Cache-Control": "no-store"})
 
 
 class AuthMeView(APIView):

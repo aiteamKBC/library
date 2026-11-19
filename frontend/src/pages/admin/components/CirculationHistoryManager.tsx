@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
 import type { Loan } from "../../../types/library";
+import { formatLibraryDate as formatDate, formatLibraryTimestamp as formatTimestamp, libraryCalendarDate } from "../../../lib/libraryDates";
+import { getReturnTimingSummary } from "../../../lib/loanReturnTiming";
 
 const HISTORY_TABS = [
   {
@@ -123,17 +125,6 @@ type PdfExportRecord = {
   lines: string[];
   studentBooks?: PdfExportStudentBook[];
 };
-
-function formatDate(date?: string | null) {
-  if (!date) return "-";
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 function normalizeText(value?: string | null) {
   return (value ?? "").trim().toLowerCase();
@@ -830,19 +821,6 @@ function getDateTimestamp(value?: string | null) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function getCalendarDayTimestamp(value?: string | null) {
-  if (!value) return null;
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) {
-    const [, year, month, day] = match;
-    return new Date(Number(year), Number(month) - 1, Number(day)).getTime();
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
-}
-
 function formatReturnCondition(condition?: Loan["returnCondition"]) {
   const labels: Record<NonNullable<Loan["returnCondition"]>, string> = {
     good: "Good",
@@ -871,33 +849,6 @@ function returnConditionBadgeClass(condition?: Loan["returnCondition"]) {
   }
 
   return tones[condition] ?? "border-gray-200 bg-gray-50 text-gray-600";
-}
-
-function getReturnTimingSummary(values: {
-  dueDate?: string | null;
-  returnedAt?: string | null;
-}) {
-  const dueDay = getCalendarDayTimestamp(values.dueDate);
-  const returnedDay = getCalendarDayTimestamp(values.returnedAt);
-
-  if (dueDay == null || returnedDay == null) {
-    return { late: false, daysLate: 0, label: "Due date not recorded" };
-  }
-
-  const daysLate = Math.round((returnedDay - dueDay) / 86_400_000);
-  if (daysLate > 0) {
-    return {
-      late: true,
-      daysLate,
-      label: `Late by ${daysLate} day${daysLate === 1 ? "" : "s"}`,
-    };
-  }
-
-  return {
-    late: false,
-    daysLate: 0,
-    label: "Returned on time",
-  };
 }
 
 function returnTimingBadgeClass(isLate?: boolean, hasDueDate?: boolean) {
@@ -939,6 +890,8 @@ function getReturnTimingLabel(values: {
   if (!values.dueDate) {
     return "Due date not recorded";
   }
+
+  if (values.daysLate == null) return "Return timing unavailable";
 
   if (values.late) {
     const daysLate = values.daysLate ?? 0;
@@ -1014,7 +967,7 @@ export default function CirculationHistoryManager() {
     >();
 
     historyLoans.forEach((loan) => {
-      const returnTimingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt });
+      const returnTimingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt, returnDaysLate: loan.returnDaysLate });
       const key = getBorrowerIdentityKey(loan);
       const existing = grouped.get(key) ?? {
         key,
@@ -1113,7 +1066,7 @@ export default function CirculationHistoryManager() {
     >();
 
     historyLoans.forEach((loan) => {
-      const returnTimingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt });
+      const returnTimingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt, returnDaysLate: loan.returnDaysLate });
       const matchedResource =
         (loan.resourceId ? resourceById.get(loan.resourceId) : undefined) ??
         resourceByTitle.get(normalizeText(loan.bookTitle));
@@ -1236,7 +1189,7 @@ export default function CirculationHistoryManager() {
         student.lastBookTitle,
         ...student.titles.map((title) => title.title),
         ...student.titles.map((title) => formatReturnCondition(title.latestReturnCondition)),
-        ...student.titles.map((title) => getReturnTimingSummary({ dueDate: title.latestDueDate, returnedAt: title.lastReturnedAt }).label),
+        ...student.titles.map((title) => getReturnTimingSummary({ dueDate: title.latestDueDate, returnedAt: title.lastReturnedAt, returnDaysLate: title.latestDaysLate }).label),
         ...student.titles.map((title) => title.latestReturnEvidenceName ?? ""),
       ].map((value) => value.toLowerCase());
       return !normalizedSearch || searchableFields.some((value) => value.includes(normalizedSearch));
@@ -1344,7 +1297,7 @@ export default function CirculationHistoryManager() {
               daysLate: book.latestDaysLate,
             }),
             condition: formatReturnCondition(book.latestReturnCondition),
-            returnedAt: formatDate(book.lastReturnedAt),
+            returnedAt: formatTimestamp(book.lastReturnedAt),
             dueDate: formatDate(book.latestDueDate),
             copyNumber: book.latestCopyNumber || "Not set",
           })),
@@ -1371,13 +1324,13 @@ export default function CirculationHistoryManager() {
           `Phone: ${loan.borrowerPhone || "No phone number"}`,
           ...((loan.borrowerStudentId ?? "").trim() ? [`Student ID: ${loan.borrowerStudentId}`] : []),
           `Copy number: ${loan.accessionNumber || "Not set"}`,
-          `Borrowed at: ${formatDate(loan.borrowedAt)}`,
+          `Borrowed at: ${formatTimestamp(loan.borrowedAt)}`,
           `Due date: ${formatDate(loan.dueDate)}`,
-          `Returned at: ${formatDate(loan.returnedAt)}`,
+          `Returned at: ${formatTimestamp(loan.returnedAt)}`,
           `Return status: ${getReturnTimingLabel({
             dueDate: loan.dueDate,
             returnedAt: loan.returnedAt,
-            ...getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt }),
+            ...getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt, returnDaysLate: loan.returnDaysLate }),
           })}`,
           `Condition: ${formatReturnCondition(loan.returnCondition)}`,
           ...((loan.returnConditionNotes ?? "").trim() ? [`Condition notes: ${loan.returnConditionNotes.trim()}`] : []),
@@ -1389,7 +1342,7 @@ export default function CirculationHistoryManager() {
     }
 
     const stamp = new Date();
-    const stampFile = stamp.toISOString().slice(0, 10);
+    const stampFile = libraryCalendarDate(stamp);
     const summaryLines = [
       `View: ${getTabConfig(tab).label}`,
       `Records: ${records.length}`,
@@ -1632,7 +1585,7 @@ export default function CirculationHistoryManager() {
             </div>
 
             {filteredTransactions.map((loan) => {
-              const timingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt });
+              const timingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt, returnDaysLate: loan.returnDaysLate });
               const timingLabel = getReturnTimingLabel({
                 dueDate: loan.dueDate,
                 returnedAt: loan.returnedAt,
@@ -1677,11 +1630,11 @@ export default function CirculationHistoryManager() {
                       <div className="grid grid-cols-2 gap-2">
                         <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2">
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Borrowed</p>
-                          <p className="mt-1 text-sm font-semibold text-gray-900">{formatDate(loan.borrowedAt)}</p>
+                          <p className="mt-1 text-sm font-semibold text-gray-900">{formatTimestamp(loan.borrowedAt)}</p>
                         </div>
                         <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-3 py-2">
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Returned</p>
-                          <p className="mt-1 text-sm font-semibold text-emerald-700">{formatDate(loan.returnedAt)}</p>
+                          <p className="mt-1 text-sm font-semibold text-emerald-700">{formatTimestamp(loan.returnedAt)}</p>
                         </div>
                       </div>
                       <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2">
@@ -1740,7 +1693,7 @@ export default function CirculationHistoryManager() {
 
           <div className="space-y-3 lg:hidden">
             {filteredTransactions.map((loan) => {
-              const timingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt });
+              const timingSummary = getReturnTimingSummary({ dueDate: loan.dueDate, returnedAt: loan.returnedAt, returnDaysLate: loan.returnDaysLate });
               const timingLabel = getReturnTimingLabel({
                 dueDate: loan.dueDate,
                 returnedAt: loan.returnedAt,
@@ -1769,8 +1722,8 @@ export default function CirculationHistoryManager() {
                   </div>
 
                   <div className="grid gap-2 text-xs text-gray-500 sm:grid-cols-2">
-                    <p><span className="font-semibold text-gray-700">Borrowed:</span> {formatDate(loan.borrowedAt)}</p>
-                    <p><span className="font-semibold text-gray-700">Returned:</span> {formatDate(loan.returnedAt)}</p>
+                    <p><span className="font-semibold text-gray-700">Borrowed:</span> {formatTimestamp(loan.borrowedAt)}</p>
+                    <p><span className="font-semibold text-gray-700">Returned:</span> {formatTimestamp(loan.returnedAt)}</p>
                     <p><span className="font-semibold text-gray-700">Due:</span> {formatDate(loan.dueDate)}</p>
                     <p><span className="font-semibold text-gray-700">Copy:</span> {loan.accessionNumber}</p>
                     <p><span className="font-semibold text-gray-700">Condition:</span> {formatReturnCondition(loan.returnCondition)}</p>
@@ -1931,7 +1884,7 @@ export default function CirculationHistoryManager() {
                             <div className="mt-3 grid gap-2 sm:grid-cols-3">
                               <div className="rounded-xl border border-[#F3E9DA] bg-[#FCFAF6] px-3 py-3">
                                 <p className="text-[10px] uppercase tracking-wide text-gray-400">Returned</p>
-                                <p className="mt-1 text-sm font-semibold text-[#241453]">{formatDate(title.lastReturnedAt)}</p>
+                                <p className="mt-1 text-sm font-semibold text-[#241453]">{formatTimestamp(title.lastReturnedAt)}</p>
                               </div>
                               <div className="rounded-xl border border-[#F3E9DA] bg-[#FCFAF6] px-3 py-3">
                                 <p className="text-[10px] uppercase tracking-wide text-gray-400">Due Date</p>

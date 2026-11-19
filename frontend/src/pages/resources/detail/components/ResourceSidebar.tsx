@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import type { Resource } from "../../../../types/library";
 import { useLibrarySession } from "../../../../hooks/useLibrarySession";
 import { getResourceQueueMetrics } from "../../../../lib/resourceAvailability";
+import { formatLibraryDate } from "../../../../lib/libraryDates";
 
 interface Props {
   resource: Resource;
@@ -12,11 +13,7 @@ export default function ResourceSidebar({ resource, onRequestBook }: Props) {
   const { user } = useLibrarySession();
   const { availableCopies, borrowableCopies, pendingBorrowRequests, queueFull, canBorrow } = getResourceQueueMetrics(resource);
   const expectedAvailableText = resource.expectedAvailableDate
-    ? new Date(resource.expectedAvailableDate).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    })
+    ? formatLibraryDate(resource.expectedAvailableDate)
     : null;
 
   const availabilityStyles: Record<string, { badge: string; panel: string; text: string }> = {

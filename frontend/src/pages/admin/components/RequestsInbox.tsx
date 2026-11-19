@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../../hooks/useAdminData";
+import { formatLibraryDate, formatLibraryTimestamp } from "../../../lib/libraryDates";
 import type { BookRequest } from "../../../types/library";
 
 const STATUS_TABS = ["all", "pending", "approved", "rejected", "cancelled"] as const;
@@ -135,7 +136,7 @@ export default function RequestsInbox() {
                         <i className="ri-calendar-2-line text-[#442F73]/50 text-xs" />
                         <span className="text-[10px] text-gray-500 font-medium">
                           {request.neededFrom
-                            ? new Date(request.neededFrom).toLocaleDateString("en-GB", {
+                            ? formatLibraryDate(request.neededFrom, {
                                 day: "numeric",
                                 month: "short",
                                 year: "numeric",
@@ -143,7 +144,7 @@ export default function RequestsInbox() {
                             : "?"}
                           {" to "}
                           {request.neededUntil
-                            ? new Date(request.neededUntil).toLocaleDateString("en-GB", {
+                            ? formatLibraryDate(request.neededUntil, {
                                 day: "numeric",
                                 month: "short",
                                 year: "numeric",
@@ -158,7 +159,7 @@ export default function RequestsInbox() {
                       {request.status}
                     </span>
                     <span className="text-xs text-gray-400">
-                      {new Date(request.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                      {formatLibraryTimestamp(request.submittedAt)}
                     </span>
                   </div>
                 </div>
@@ -180,7 +181,7 @@ export default function RequestsInbox() {
                           <span className="text-xs font-semibold text-[#442F73]">Needed period:</span>
                           <span className="text-xs text-gray-600 font-medium">
                             {request.neededFrom
-                              ? new Date(request.neededFrom).toLocaleDateString("en-GB", {
+                              ? formatLibraryDate(request.neededFrom, {
                                   day: "numeric",
                                   month: "short",
                                   year: "numeric",
@@ -190,7 +191,7 @@ export default function RequestsInbox() {
                           <i className="ri-arrow-right-line text-gray-400 text-xs" />
                           <span className="text-xs text-gray-600 font-medium">
                             {request.neededUntil
-                              ? new Date(request.neededUntil).toLocaleDateString("en-GB", {
+                              ? formatLibraryDate(request.neededUntil, {
                                   day: "numeric",
                                   month: "short",
                                   year: "numeric",

@@ -1,13 +1,19 @@
 from django.contrib.auth import get_user_model
 import os
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
+
+from .timezones import (
+    confirmation_timezone, london_today, calculate_deadline, LONDON,
+    validated_timezone, validate_iana_timezone, approved_utc_cutover, require_aware,
+)
 
 
 User = get_user_model()
@@ -30,11 +36,19 @@ class UserProfile(models.Model):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
     phone_number = models.CharField(max_length=30, blank=True)
     student_id_code = models.CharField(max_length=40, blank=True)
+    time_zone = models.CharField(max_length=100, null=True, blank=True, validators=[validate_iana_timezone])
+    time_zone_source = models.CharField(max_length=10, choices=[("browser", "Browser"), ("manual", "Explicit choice")], blank=True)
+    time_zone_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["user__username"]
+        constraints = [models.CheckConstraint(
+            condition=(Q(time_zone__isnull=True, time_zone_source="", time_zone_updated_at__isnull=True)
+                       | (Q(time_zone__isnull=False, time_zone_source__in=["browser", "manual"], time_zone_updated_at__isnull=False) & ~Q(time_zone=""))),
+            name="lib_profile_timezone_complete",
+        )]
 
     def __str__(self) -> str:
         return f"{self.user.get_username()} ({self.role})"
@@ -376,7 +390,29 @@ class BookCopy(models.Model):
         super().save(*args, **kwargs)
 
 
+class LoanQuerySet(models.QuerySet):
+    PROTECTED_FIELDS = {"due_date", "delivery_days", "status", "approved_at", "borrowed_at", "email_deadline_revision",
+                        "calculation_policy", "calculation_timezone", "operational_timezone", "confirmation_local_date"}
+
+    def update(self, **kwargs):
+        if self.PROTECTED_FIELDS.intersection(kwargs):
+            raise ValidationError("Use Loan.save() for deadline/state changes; bulk updates bypass policy and revision protection.")
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, **kwargs):
+        if self.PROTECTED_FIELDS.intersection(fields):
+            raise ValidationError("Use Loan.save() for deadline/state changes.")
+        return super().bulk_update(objs, fields, **kwargs)
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("Create loans individually so confirmation policy and revisions are validated.")
+
+
 class Loan(models.Model):
+    objects = models.Manager.from_queryset(LoanQuerySet)()
+    BORROWING_DAYS = 30
+    POLICY_FIELDS = ("calculation_policy", "calculation_timezone", "operational_timezone", "confirmation_local_date")
+
     class LoanStatus(models.TextChoices):
         REQUESTED = "requested", "Requested"
         RESERVED = "reserved", "Reserved"
@@ -417,6 +453,13 @@ class Loan(models.Model):
     approved_at = models.DateTimeField(blank=True, null=True)
     borrowed_at = models.DateTimeField(blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
+    delivery_days = models.PositiveSmallIntegerField(default=0)
+    calculation_policy = models.CharField(max_length=20, null=True, blank=True,
+        choices=[("cairo_v1", "Historical Cairo"), ("london_v1", "London"), ("user_local_v1", "Student local")], editable=False)
+    calculation_timezone = models.CharField(max_length=100, null=True, blank=True, validators=[validate_iana_timezone], editable=False)
+    operational_timezone = models.CharField(max_length=100, null=True, blank=True, validators=[validate_iana_timezone], editable=False)
+    confirmation_local_date = models.DateField(null=True, blank=True, editable=False)
+    email_deadline_revision = models.PositiveBigIntegerField(default=0, editable=False)
     returned_at = models.DateTimeField(blank=True, null=True)
     return_condition = models.CharField(max_length=20, choices=ReturnCondition.choices, blank=True)
     return_condition_notes = models.TextField(blank=True)
@@ -432,6 +475,18 @@ class Loan(models.Model):
 
     class Meta:
         ordering = ["-requested_at"]
+        constraints = [models.CheckConstraint(
+            condition=(Q(calculation_policy__isnull=True, calculation_timezone__isnull=True, operational_timezone__isnull=True, confirmation_local_date__isnull=True)
+                       | (Q(calculation_policy__isnull=False, calculation_policy__in=["cairo_v1", "london_v1", "user_local_v1"], calculation_timezone__isnull=False, operational_timezone__isnull=False, confirmation_local_date__isnull=False)
+                          & ~Q(calculation_timezone="") & ~Q(operational_timezone=""))),
+            name="lib_loan_policy_complete",
+        ), models.CheckConstraint(
+            condition=(
+                (~Q(calculation_policy="cairo_v1") | Q(calculation_timezone="Africa/Cairo"))
+                & (~Q(calculation_policy="london_v1") | Q(calculation_timezone="Europe/London"))
+                & (~Q(calculation_policy="user_local_v1") | Q(operational_timezone=models.F("calculation_timezone")))
+            ), name="lib_loan_policy_zones",
+        )]
 
     def __str__(self) -> str:
         return f"{self.book_copy.accession_number} - {self.borrower}"
@@ -503,10 +558,35 @@ class Loan(models.Model):
             raise ValidationError("A loan must include either a linked borrower or a borrower name and email.")
 
         if self.pk:
-            previous = Loan.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            previous_values = Loan.objects.filter(pk=self.pk).values(
+                "status", "delivery_days", "approved_at", "borrowed_at", "due_date",
+                *self.POLICY_FIELDS,
+            ).first()
+            previous = previous_values["status"] if previous_values else None
+            if previous_values:
+                self.validate_confirmation_history(previous_values)
+                self.validate_policy_history(previous_values)
+            first_confirmation = self.status in {self.LoanStatus.APPROVED, self.LoanStatus.BORROWED} and (
+                previous is None or previous in {self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED}
+            )
+            delivery_changed = previous_values and previous_values["delivery_days"] != self.delivery_days
+            if first_confirmation:
+                self.first_confirmation_policy(self.approved_at or timezone.now())
+            elif delivery_changed and (self.approved_at or self.borrowed_at or previous not in {
+                self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED, self.LoanStatus.NOTIFY,
+            }):
+                self.calculate_due_date()
             if previous and previous != self.status:
                 allowed = self.allowed_status_transitions().get(previous, set())
-                if self.status not in allowed:
+                # A corrected delivery period can make an overdue loan current again.
+                delivery_corrected = (
+                    previous == self.LoanStatus.OVERDUE
+                    and self.status == self.LoanStatus.BORROWED
+                    and self.delivery_days != previous_values["delivery_days"]
+                    and self.due_date is not None
+                    and self.due_date >= self.calendar_today()
+                )
+                if self.status not in allowed and not delivery_corrected:
                     raise ValidationError({"status": f"Cannot change loan status from {previous} to {self.status}."})
 
         if self.status == self.LoanStatus.RETURNED and previous != self.LoanStatus.RETURNED and not self.return_condition:
@@ -566,9 +646,212 @@ class Loan(models.Model):
                 raise ValidationError({"book_copy": "This copy already has an active borrowing flow."})
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        super().save(*args, **kwargs)
-        self.sync_book_copy_status(self.book_copy)
+        # Preserve Django's legacy positional save arguments while ensuring that
+        # automatic deadline/revision fields join the actual update_fields set.
+        if len(args) > 4:
+            raise TypeError("Loan.save() accepts at most four positional save options.")
+        for name, value in zip(("force_insert", "force_update", "using", "update_fields"), args):
+            if name in kwargs:
+                raise TypeError(f"Loan.save() received duplicate {name}.")
+            kwargs[name] = value
+        args = ()
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            if not update_fields:
+                return
+        with transaction.atomic():
+            previous = Loan.objects.select_for_update().filter(pk=self.pk).first() if self.pk else None
+            if previous:
+                self.validate_confirmation_history({
+                    field: getattr(previous, field) for field in ("status", "approved_at", "borrowed_at")
+                })
+                self.validate_policy_history({"status": previous.status, **{
+                    field: getattr(previous, field) for field in self.POLICY_FIELDS
+                }})
+                effective_due = self.due_date if update_fields is None or "due_date" in update_fields else previous.due_date
+                effective_days = self.delivery_days if update_fields is None or "delivery_days" in update_fields else previous.delivery_days
+                if self.email_deadline_revision != previous.email_deadline_revision and (
+                    effective_due != previous.due_date or effective_days != previous.delivery_days
+                ):
+                    raise ValidationError({"due_date": "The deadline changed concurrently. Reload the loan before editing it."})
+            starting = (update_fields is None or "status" in update_fields) and self.status in {
+                self.LoanStatus.APPROVED, self.LoanStatus.BORROWED,
+            } and (previous is None or previous.status in {self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED})
+            changed_fields = set()
+            if starting:
+                self.approved_at = timezone.now()
+                changed_fields.add("approved_at")
+                snapshot = self.first_confirmation_policy(self.approved_at, lock=True)
+                for field, value in zip(self.POLICY_FIELDS, snapshot):
+                    setattr(self, field, value)
+                changed_fields.update(self.POLICY_FIELDS)
+                if self.status == self.LoanStatus.BORROWED:
+                    self.borrowed_at = self.approved_at
+                    changed_fields.add("borrowed_at")
+            borrowing_after_approval = (
+                not starting and previous and previous.status == self.LoanStatus.APPROVED
+                and self.status == self.LoanStatus.BORROWED
+                and (update_fields is None or "status" in update_fields)
+            )
+            if borrowing_after_approval and self.borrowed_at is None and previous.approved_at is not None:
+                # Record checkout without inventing/replacing the original confirmation.
+                self.borrowed_at = timezone.now()
+                changed_fields.add("borrowed_at")
+            delivery_changed = (
+                previous is not None and previous.delivery_days != self.delivery_days
+                and (update_fields is None or "delivery_days" in update_fields)
+            )
+            changing_saved_due = (
+                previous is not None and self.due_date != previous.due_date
+                and (update_fields is None or "due_date" in update_fields)
+            )
+            protected_due = self.historical_deadline(previous) if previous and (delivery_changed or changing_saved_due) else None
+            if protected_due is not None and changing_saved_due:
+                raise ValidationError({"due_date": "This historical return date is fixed by the user-local cutover and cannot be changed."})
+            needs_deadline = starting or delivery_changed or (borrowing_after_approval and self.due_date is None)
+            if needs_deadline:
+                confirmed_at = self.approved_at or self.borrowed_at
+                # A newly recorded checkout is not evidence of a missing legacy confirmation.
+                if previous and not starting:
+                    confirmed_at = previous.approved_at or previous.borrowed_at
+                if starting or confirmed_at or self.status not in {
+                    self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED, self.LoanStatus.NOTIFY,
+                }:
+                    self.due_date = protected_due if protected_due is not None else self.calculate_due_date(confirmed_at=confirmed_at)
+                    changed_fields.add("due_date")
+                    if (
+                        protected_due is None and delivery_changed and previous.status == self.LoanStatus.OVERDUE
+                        and self.status == self.LoanStatus.OVERDUE and self.due_date >= self.calendar_today()
+                    ):
+                        self.status = self.LoanStatus.BORROWED
+                        changed_fields.add("status")
+            self.full_clean()
+            final_due = self.due_date
+            if previous and update_fields is not None and "due_date" not in update_fields | changed_fields:
+                final_due = previous.due_date
+            self.email_deadline_revision = (previous.email_deadline_revision if previous else 0)
+            if previous and final_due != previous.due_date:
+                self.email_deadline_revision += 1
+                changed_fields.add("email_deadline_revision")
+            if update_fields is not None:
+                kwargs["update_fields"] = update_fields | changed_fields
+            super().save(*args, **kwargs)
+            self.sync_book_copy_status(self.book_copy)
+            from .email_events import record_loan_change
+            record_loan_change(self, previous)
+
+    def validate_confirmation_history(self, previous):
+        for field in ("approved_at", "borrowed_at"):
+            old = previous[field]
+            if old is not None and getattr(self, field) != old:
+                raise ValidationError({field: "The original confirmation/checkout timestamp cannot be changed."})
+        if previous["status"] not in {self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED, self.LoanStatus.NOTIFY}:
+            if self.approved_at != previous["approved_at"]:
+                raise ValidationError({"approved_at": "The original confirmation cannot be replaced."})
+            if previous["approved_at"] is None and previous["borrowed_at"] is None and self.borrowed_at is not None:
+                raise ValidationError({"borrowed_at": "A missing original confirmation cannot be replaced by an edit timestamp."})
+
+    def historical_deadline(self, previous=None):
+        """Keep pre-activation deadlines verbatim, including on delivery edits.
+
+        Only an approved, fixed user-local boundary activates this protection.
+        Retain it even if the new-confirmation flag is subsequently switched off.
+        Unclassified old records stay unclassified; a missing anchor cannot be
+        used to invent a new deadline or a Cairo/London policy.
+        """
+        boundary_value = getattr(settings, "LIBRARY_USER_LOCAL_CUTOVER_AT", "")
+        if not boundary_value:
+            return None
+        if previous is None:
+            if self._state.adding:
+                return None
+            previous = Loan.objects.filter(pk=self.pk).values(
+                "status", "approved_at", "borrowed_at", "due_date",
+            ).first()
+        elif isinstance(previous, Loan):
+            previous = {field: getattr(previous, field) for field in ("status", "approved_at", "borrowed_at", "due_date")}
+        if not previous or previous["status"] in {
+            self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED, self.LoanStatus.NOTIFY,
+        }:
+            return None
+        boundary = approved_utc_cutover(boundary_value, "LIBRARY_USER_LOCAL_CUTOVER_AT")
+        if timezone.now() < boundary:
+            return None  # A future approved boundary is not active yet.
+        anchor = previous["approved_at"] or previous["borrowed_at"]
+        if anchor is not None and require_aware(anchor) >= boundary:
+            return None
+        if previous["due_date"] is None:
+            raise ValidationError({"due_date": "The historical return date is missing and cannot be reconstructed automatically."})
+        return previous["due_date"]
+
+    def calculate_due_date(self, *, confirmed_at=..., delivery_days=None):
+        protected_due = self.historical_deadline()
+        if protected_due is not None:
+            return protected_due
+        explicit = confirmed_at is not ...
+        if confirmed_at is ...:
+            confirmed_at = self.approved_at or self.borrowed_at
+        days = self.delivery_days if delivery_days is None else delivery_days
+        if self.calculation_policy and self.confirmation_local_date:
+            return self.confirmation_local_date + timedelta(days=self.BORROWING_DAYS + days)
+        if not confirmed_at or timezone.is_naive(confirmed_at):
+            raise ValidationError({"delivery_days": "A reliable, timezone-aware confirmation is required. Existing dates have been preserved."})
+        if explicit and self.status in {self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED}:
+            zone = confirmation_timezone(confirmed_at)
+            return calculate_deadline(confirmed_at, zone.key, days, self.BORROWING_DAYS)
+        raise ValidationError({"delivery_days": "The historical loan policy is unclassified. Verify its original timezone before recalculating; the saved deadline is preserved."})
+
+    def first_confirmation_policy(self, confirmed_at, *, lock=False):
+        # Student-local activation always needs its approved UTC boundary.
+        # With no configured London transition, the legacy calendar is Cairo.
+        # Existing snapshots and historical deadlines bypass this selection.
+        confirmed_at = require_aware(confirmed_at)
+        use_local = getattr(settings, "LIBRARY_USER_LOCAL_POLICY_ENABLED", False)
+        if use_local:
+            cutover = approved_utc_cutover(getattr(settings, "LIBRARY_USER_LOCAL_CUTOVER_AT", ""), "LIBRARY_USER_LOCAL_CUTOVER_AT")
+            use_local = confirmed_at >= cutover
+        if use_local:
+            if not self.borrower_id:
+                raise ValidationError({"delivery_days": "A linked student account with a saved timezone is required for the new policy."})
+            profiles = UserProfile.objects.filter(user_id=self.borrower_id)
+            profile = (profiles.select_for_update() if lock else profiles).first()
+            try:
+                zone = validated_timezone(profile.time_zone if profile else None)
+            except ValidationError as exc:
+                raise ValidationError({"delivery_days": "The student must save a valid timezone before this loan can be confirmed."}) from exc
+            policy, operational = "user_local_v1", zone.key
+        else:
+            zone = confirmation_timezone(confirmed_at)
+            policy = "cairo_v1" if zone.key == "Africa/Cairo" else "london_v1"
+            operational = LONDON.key  # Preserve the previous local implementation.
+        return policy, zone.key, operational, timezone.localdate(confirmed_at, timezone=zone)
+
+    def validate_policy_history(self, previous):
+        if any(getattr(self, field) != previous[field] for field in self.POLICY_FIELDS):
+            if previous["calculation_policy"] is not None or previous["status"] not in {
+                self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED, self.LoanStatus.NOTIFY,
+            }:
+                raise ValidationError({"delivery_days": "The original loan timezone/policy snapshot is immutable; historical classification requires a separately approved operation."})
+
+    def calendar_today(self, instant=None):
+        zone = validated_timezone(self.operational_timezone) if self.operational_timezone else LONDON
+        return timezone.localdate(instant or timezone.now(), timezone=zone)
+
+    @property
+    def return_days_late(self):
+        if self.returned_at is None or self.due_date is None:
+            return None
+        # Preserve the existing operational policy; presentation is viewer-local.
+        return max(0, (self.calendar_today(self.returned_at) - self.due_date).days)
+
+    def preview_due_date(self, delivery_days):
+        if self.status in {self.LoanStatus.REQUESTED, self.LoanStatus.RESERVED}:
+            snapshot = self.first_confirmation_policy(timezone.now())
+            return snapshot[3] + timedelta(days=self.BORROWING_DAYS + delivery_days)
+        if delivery_days == self.delivery_days and self.due_date is not None:
+            return self.due_date
+        return self.calculate_due_date(delivery_days=delivery_days)
 
     @staticmethod
     def next_copy_status(book_copy: BookCopy) -> str:
@@ -704,6 +987,14 @@ class BookRequest(models.Model):
     def __str__(self) -> str:
         return f"{self.book_title} - {self.student_name}"
 
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            is_new = self._state.adding and not type(self).objects.filter(pk=self.pk).exists()
+            super().save(*args, **kwargs)
+            if is_new:
+                from .email_events import record_book_request
+                record_book_request(self)
+
 
 class SupportMessage(models.Model):
     class MessageStatus(models.TextChoices):
@@ -746,3 +1037,7 @@ class SupportMessage(models.Model):
 def ensure_user_profile(user: User) -> UserProfile:
     profile, _ = UserProfile.objects.get_or_create(user=user)
     return profile
+
+
+# Explicit imports register records without starting jobs or performing network I/O.
+from .email_models import EmailAttempt, EmailOutbox  # noqa: E402,F401

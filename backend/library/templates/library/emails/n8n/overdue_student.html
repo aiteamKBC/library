@@ -1,0 +1,60 @@
+<div style="margin:0;padding:0;background-color:#f6f4ef;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f6f4ef;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:640px;max-width:640px;background:#ffffff;border:1px solid #ead7d7;border-radius:16px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+          <tr>
+            <td style="background:#9b1c1c;padding:24px 32px;">
+              <h1 style="margin:0;font-size:24px;line-height:32px;color:#ffffff;font-weight:700;">Overdue Notice</h1>
+             <p style="margin:8px 0 0 0;font-size:14px;line-height:22px;color:#ffe3e3;">
+  <strong>{{ book_title }}</strong> is now overdue.
+</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <p style="margin:0 0 16px 0;font-size:16px;line-height:26px;color:#222222;">
+                Dear <strong>{{ student_name }}</strong>,
+              </p>
+
+              <p style="margin:0 0 20px 0;font-size:15px;line-height:26px;color:#444444;">
+                This is an overdue notice from <strong>KBC Library</strong>. Our records show that the following book was due on
+                <strong>{{ due_date_display }}</strong> and has not yet been returned.
+              </p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px 0;background:#fff6f6;border:1px solid #f0caca;border-radius:12px;">
+                <tr>
+                  <td style="padding:20px 22px;">
+                    <p style="margin:0 0 10px 0;font-size:14px;line-height:22px;color:#8a4b4b;text-transform:uppercase;letter-spacing:.4px;">Overdue Item</p>
+                    <p style="margin:0 0 10px 0;font-size:18px;line-height:28px;color:#1d1d1d;font-weight:700;">{{ book_title }}</p>
+                    <p style="margin:0 0 6px 0;font-size:14px;line-height:22px;color:#444444;">
+                      <strong>Copy Number:</strong> {{ copy_number }}
+                    </p>
+                    <p style="margin:0;font-size:14px;line-height:22px;color:#444444;">
+                      <strong>Due Date:</strong> {{ due_date_display }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+             <p style="margin:0 0 18px 0;font-size:15px;line-height:26px;color:#444444;">
+  Please return <strong>{{ book_title }}</strong> as soon as possible. If you have already returned it, please ignore this email.
+</p>
+
+
+              <p style="margin:0;font-size:15px;line-height:26px;color:#222222;">
+                Kind regards,<br>
+                <strong>KBC Library</strong>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 32px;background:#faf8f4;border-top:1px solid #eee4d4;">
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>
+

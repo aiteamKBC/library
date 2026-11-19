@@ -4,6 +4,7 @@ import Navbar from "../../components/feature/Navbar";
 import Footer from "../../components/feature/Footer";
 import { useLibrarySession } from "../../hooks/useLibrarySession";
 import { api } from "../../lib/api";
+import { formatLibraryDate, formatLibraryTimestamp } from "../../lib/libraryDates";
 import type { BookRequest, Loan, StudentDashboard } from "../../types/library";
 
 const ACTIVE_LOAN_STATUSES = new Set(["approved", "reserved", "borrowed", "overdue"]);
@@ -72,14 +73,7 @@ function canHideBookRequest(request: BookRequest) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "Not set";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return formatLibraryDate(value, undefined, "Not set");
 }
 
 function titleCaseStatus(value: string) {
@@ -841,7 +835,7 @@ export default function AccountPage() {
                         <div className="grid sm:grid-cols-3 gap-3 mt-4 text-sm">
                           <div className="rounded-xl bg-white border border-[#F1E3CB] px-3 py-3">
                             <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Requested</p>
-                            <p className="font-medium text-[#241453]">{formatDate(loan.requestedAt)}</p>
+                            <p className="font-medium text-[#241453]">{formatLibraryTimestamp(loan.requestedAt, "Not set")}</p>
                           </div>
                           <div className="rounded-xl bg-white border border-[#F1E3CB] px-3 py-3">
                             <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Due Date</p>
@@ -849,7 +843,7 @@ export default function AccountPage() {
                           </div>
                           <div className="rounded-xl bg-white border border-[#F1E3CB] px-3 py-3">
                             <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Returned</p>
-                            <p className="font-medium text-[#241453]">{formatDate(loan.returnedAt)}</p>
+                            <p className="font-medium text-[#241453]">{formatLibraryTimestamp(loan.returnedAt, "Not set")}</p>
                           </div>
                         </div>
                         {loan.notes && (
@@ -955,7 +949,7 @@ export default function AccountPage() {
                           <div>
                             <p className="font-semibold text-[#241453]">{request.bookTitle}</p>
                             <p className="text-sm text-gray-500 mt-1">
-                              {request.category} • {formatDate(request.submittedAt)}
+                              {request.category} • {formatLibraryTimestamp(request.submittedAt, "Not set")}
                             </p>
                           </div>
                           <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(request.status)}`}>

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ heading }}</title></head>
+<body style="margin:0;background:#f6f4fa;color:#20183b;font-family:Arial,sans-serif;line-height:1.6">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:100%;background:white;border-radius:12px">
+<tr><td style="padding:24px 32px;background:#241453;color:#fff"><strong style="color:#e0c86b">KENT BUSINESS COLLEGE</strong><br>KBC Library</td></tr>
+<tr><td style="padding:24px 32px"><h1 style="font-size:23px;color:#442f73">{{ heading }}</h1>
+<p>Hello {{ student_name }},</p><p>{{ intro }}</p><p><strong>{{ book_title }}</strong></p>
+{% if manual_message %}<p>{{ manual_message|linebreaksbr }}</p>{% endif %}
+<table role="presentation" width="100%" cellspacing="0" cellpadding="8">{% for label, value in rows %}<tr><th scope="row" align="left" style="border-bottom:1px solid #eee">{{ label }}</th><td style="border-bottom:1px solid #eee">{{ value }}</td></tr>{% endfor %}</table>
+{% for label, url in links %}<p><a href="{{ url }}" style="color:#442f73">{{ label }}</a></p>{% endfor %}
+<p>Kind regards,<br>KBC Library Team</p></td></tr>
+<tr><td style="padding:16px 32px;background:#f1eef7;font-size:12px">Calendar return dates are shown exactly as recorded. Times use your saved timezone for the date of the event.</td></tr>
+</table></td></tr></table></body></html>

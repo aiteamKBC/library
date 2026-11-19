@@ -1,13 +1,65 @@
 import os
+from collections.abc import Mapping
+from datetime import timezone as utc_timezone
 
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import models as django_models
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import serializers
 
 from .models import BookCopy, BookFeedback, BookRequest, Category, Loan, Resource, SupportMessage, UserProfile, ensure_user_profile
+from .permissions import IsLibraryStaff
+from .timezones import validated_timezone
 
 User = get_user_model()
+
+
+class UTCDateTimeField(serializers.DateTimeField):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("default_timezone", utc_timezone.utc)
+        super().__init__(*args, **kwargs)
+
+    def to_internal_value(self, value):
+        try:
+            parsed = parse_datetime(value) if isinstance(value, str) else value
+        except ValueError:
+            parsed = None
+        if parsed is not None and hasattr(parsed, "utcoffset") and timezone.is_naive(parsed):
+            raise serializers.ValidationError("An explicit timezone offset is required for timestamps.")
+        return super().to_internal_value(value)
+
+
+class UTCModelSerializer(serializers.ModelSerializer):
+    serializer_field_mapping = {
+        **serializers.ModelSerializer.serializer_field_mapping,
+        django_models.DateTimeField: UTCDateTimeField,
+    }
+
+
+class TimezoneObservationSerializer(serializers.Serializer):
+    allowed_fields = {"timeZone"}
+    timeZone = serializers.CharField(max_length=100, trim_whitespace=False)
+
+    def validate_timeZone(self, value):
+        try:
+            return validated_timezone(value).key
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict["timeZone"]) from exc
+
+    def to_internal_value(self, data):
+        if not isinstance(data, Mapping):
+            raise serializers.ValidationError({"non_field_errors": ["Expected a timezone object."]})
+        if set(data) - self.allowed_fields:
+            raise serializers.ValidationError({"non_field_errors": ["Only your device timezone is accepted; user identifiers and timestamps are not allowed."]})
+        return super().to_internal_value(data)
+
+
+class TimezonePreferenceSerializer(TimezoneObservationSerializer):
+    allowed_fields = {"timeZone", "source"}
+    source = serializers.ChoiceField(choices=["manual", "browser"])
 
 
 def split_full_name(full_name: str) -> tuple[str, str]:
@@ -27,7 +79,7 @@ def authenticate_by_identifier(identifier: str, password: str):
     return user
 
 
-class CategorySerializer(serializers.ModelSerializer):
+class CategorySerializer(UTCModelSerializer):
     resourceCount = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -35,7 +87,7 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = ["id", "name", "slug", "description", "color", "icon", "resourceCount"]
 
 
-class ResourceSerializer(serializers.ModelSerializer):
+class ResourceSerializer(UTCModelSerializer):
     category = serializers.CharField(source="category.name", read_only=True)
     categoryId = serializers.SlugRelatedField(source="category", slug_field="slug", queryset=Category.objects.all())
     dateAdded = serializers.DateField(source="date_added", required=False)
@@ -116,7 +168,7 @@ class ResourceSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class BookCopySerializer(serializers.ModelSerializer):
+class BookCopySerializer(UTCModelSerializer):
     resourceId = serializers.CharField(source="resource_id", read_only=True)
     resourceTitle = serializers.CharField(source="resource.title", read_only=True)
 
@@ -136,7 +188,11 @@ class BookCopySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "added_at", "updated_at", "resourceId", "resourceTitle"]
 
 
-class LoanSerializer(serializers.ModelSerializer):
+class LoanApprovalSerializer(serializers.Serializer):
+    deliveryDays = serializers.IntegerField(min_value=0, max_value=32767, required=True)
+
+
+class LoanSerializer(UTCModelSerializer):
     borrowerId = serializers.IntegerField(source="borrower_id", allow_null=True, required=False)
     borrowerName = serializers.CharField(source="borrower_name", allow_blank=True, required=False)
     borrowerEmail = serializers.EmailField(source="borrower_email", allow_blank=True, required=False)
@@ -150,11 +206,18 @@ class LoanSerializer(serializers.ModelSerializer):
     bookTitle = serializers.CharField(source="book_copy.resource.title", read_only=True)
     accessionNumber = serializers.CharField(source="book_copy.accession_number", read_only=True)
     availabilityStatus = serializers.CharField(source="book_copy.status", read_only=True)
-    requestedAt = serializers.DateTimeField(source="requested_at", required=False)
-    approvedAt = serializers.DateTimeField(source="approved_at", allow_null=True, required=False)
-    borrowedAt = serializers.DateTimeField(source="borrowed_at", allow_null=True, required=False)
+    requestedAt = UTCDateTimeField(source="requested_at", read_only=True)
+    approvedAt = UTCDateTimeField(source="approved_at", read_only=True)
+    borrowedAt = UTCDateTimeField(source="borrowed_at", read_only=True)
     dueDate = serializers.DateField(source="due_date", allow_null=True, required=False)
-    returnedAt = serializers.DateTimeField(source="returned_at", allow_null=True, required=False)
+    deliveryDays = serializers.IntegerField(source="delivery_days", min_value=0, max_value=32767, required=False)
+    returnedAt = UTCDateTimeField(source="returned_at", allow_null=True, required=False)
+    returnDaysLate = serializers.IntegerField(source="return_days_late", read_only=True, allow_null=True)
+    calculationPolicy = serializers.CharField(source="calculation_policy", read_only=True, allow_null=True)
+    calculationTimeZone = serializers.CharField(source="calculation_timezone", read_only=True, allow_null=True)
+    operationalTimeZone = serializers.CharField(source="operational_timezone", read_only=True, allow_null=True)
+    confirmationLocalDate = serializers.DateField(source="confirmation_local_date", read_only=True, allow_null=True)
+    emailDeadlineRevision = serializers.IntegerField(source="email_deadline_revision", read_only=True)
     returnCondition = serializers.CharField(source="return_condition", allow_blank=True, required=False)
     returnConditionNotes = serializers.CharField(source="return_condition_notes", allow_blank=True, required=False)
     returnEvidence = serializers.FileField(source="return_evidence", allow_empty_file=False, allow_null=True, required=False)
@@ -182,7 +245,10 @@ class LoanSerializer(serializers.ModelSerializer):
             "approvedAt",
             "borrowedAt",
             "dueDate",
+            "deliveryDays",
             "returnedAt",
+            "returnDaysLate",
+            "calculationPolicy", "calculationTimeZone", "operationalTimeZone", "confirmationLocalDate", "emailDeadlineRevision",
             "returnCondition",
             "returnConditionNotes",
             "returnEvidence",
@@ -198,6 +264,13 @@ class LoanSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        request = self.context.get("request")
+        if "delivery_days" in attrs and request and not IsLibraryStaff().has_permission(request, None):
+            raise serializers.ValidationError({"deliveryDays": "Only library staff can set delivery days."})
+        if self.instance and "delivery_days" in attrs and self.instance.status in Loan.terminal_statuses():
+            raise serializers.ValidationError({"deliveryDays": "Delivery days cannot be changed for a closed loan."})
+        if self.instance and "due_date" in attrs and (self.instance.approved_at or self.instance.borrowed_at):
+            raise serializers.ValidationError({"dueDate": "The return date is calculated automatically. Update delivery days instead."})
         borrower = attrs.get("borrower", getattr(self.instance, "borrower", None))
         borrower_name = attrs.get("borrower_name", getattr(self.instance, "borrower_name", ""))
         borrower_email = attrs.get("borrower_email", getattr(self.instance, "borrower_email", ""))
@@ -272,7 +345,7 @@ class LoanSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages) from exc
 
 
-class BookRequestSerializer(serializers.ModelSerializer):
+class BookRequestSerializer(UTCModelSerializer):
     studentName = serializers.CharField(source="student_name")
     studentEmail = serializers.EmailField(source="student_email")
     studentPhone = serializers.CharField(source="student_phone", allow_blank=True, required=False)
@@ -281,7 +354,7 @@ class BookRequestSerializer(serializers.ModelSerializer):
     reason = serializers.CharField(allow_blank=True, required=False)
     neededFrom = serializers.DateField(source="needed_from", allow_null=True, required=False)
     neededUntil = serializers.DateField(source="needed_until", allow_null=True, required=False)
-    submittedAt = serializers.DateTimeField(source="submitted_at", required=False)
+    submittedAt = UTCDateTimeField(source="submitted_at", read_only=True)
     requesterId = serializers.IntegerField(source="requester_id", allow_null=True, required=False)
     resourceId = serializers.CharField(source="resource_id", allow_null=True, required=False)
     reviewedById = serializers.IntegerField(source="reviewed_by_id", allow_null=True, required=False)
@@ -322,7 +395,7 @@ class BookRequestSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class BookFeedbackSerializer(serializers.ModelSerializer):
+class BookFeedbackSerializer(UTCModelSerializer):
     loanId = serializers.CharField(source="loan_id", read_only=True)
     resourceId = serializers.CharField(source="resource_id", read_only=True)
     borrowerId = serializers.IntegerField(source="borrower_id", allow_null=True, read_only=True)
@@ -332,7 +405,7 @@ class BookFeedbackSerializer(serializers.ModelSerializer):
     wouldRecommend = serializers.CharField(source="would_recommend")
     contentQuality = serializers.CharField(source="content_quality")
     starRating = serializers.IntegerField(source="star_rating")
-    submittedAt = serializers.DateTimeField(source="submitted_at", read_only=True)
+    submittedAt = UTCDateTimeField(source="submitted_at", read_only=True)
 
     class Meta:
         model = BookFeedback
@@ -362,10 +435,10 @@ class BookFeedbackSubmissionSerializer(serializers.Serializer):
     comment = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
-class SupportMessageSerializer(serializers.ModelSerializer):
+class SupportMessageSerializer(UTCModelSerializer):
     fullName = serializers.CharField(source="full_name")
-    submittedAt = serializers.DateTimeField(source="submitted_at", required=False)
-    resolvedAt = serializers.DateTimeField(source="resolved_at", allow_null=True, required=False)
+    submittedAt = UTCDateTimeField(source="submitted_at", read_only=True)
+    resolvedAt = UTCDateTimeField(source="resolved_at", allow_null=True, required=False)
     internalNotes = serializers.CharField(source="internal_notes", allow_blank=True, required=False)
     requesterId = serializers.IntegerField(source="requester_id", allow_null=True, required=False)
     resolvedById = serializers.IntegerField(source="resolved_by_id", allow_null=True, required=False)
@@ -389,14 +462,23 @@ class SupportMessageSerializer(serializers.ModelSerializer):
         read_only_fields = ["submittedAt", "resolvedAt", "requesterId", "resolvedById"]
 
 
-class UserProfileSerializer(serializers.ModelSerializer):
+class UserProfileSerializer(UTCModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
     fullName = serializers.SerializerMethodField()
+    timeZone = serializers.CharField(source="time_zone", read_only=True, allow_null=True)
+    timeZoneSource = serializers.CharField(source="time_zone_source", read_only=True)
+    timeZoneUpdatedAt = UTCDateTimeField(source="time_zone_updated_at", read_only=True, allow_null=True)
+    timeZoneStatus = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
-        fields = ["username", "email", "fullName", "role", "phone_number", "student_id_code"]
+        fields = ["username", "email", "fullName", "role", "phone_number", "student_id_code",
+                  "timeZone", "timeZoneSource", "timeZoneUpdatedAt", "timeZoneStatus"]
+
+    def get_timeZoneStatus(self, obj):
+        from .timezones import recipient_timezone_status
+        return recipient_timezone_status(obj.time_zone)
 
     def get_fullName(self, obj: UserProfile) -> str:
         return obj.user.get_full_name() or obj.user.get_username()
@@ -537,5 +619,11 @@ class StudentDashboardSerializer(serializers.Serializer):
 
 
 class OutboundEmailSerializer(serializers.Serializer):
+    requestId = serializers.UUIDField(required=False)
     subject = serializers.CharField(max_length=150)
     message = serializers.CharField(max_length=5000)
+
+    def validate_subject(self, value):
+        if "\r" in value or "\n" in value:
+            raise serializers.ValidationError("Email subjects cannot contain newlines.")
+        return value
