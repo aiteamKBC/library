@@ -8,7 +8,10 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import Q
+from django.db.models.functions import Lower, Trim, NullIf
 from django.utils import timezone
+
+from .loan_integrity import DUPLICATE_MESSAGE, validate_loan_identity_write
 
 from .timezones import (
     confirmation_timezone, london_today, calculate_deadline, LONDON,
@@ -144,7 +147,16 @@ class Resource(models.Model):
     def pending_requests_cover_available_copies(self) -> bool:
         return self.queue_full
 
+    @staticmethod
+    def lock_availability(*resource_ids):
+        # Take this mutex BEFORE copy/loan/outbox locks. It serializes inventory,
+        # queue changes and worker submission checks without locking during IO.
+        list(Resource.objects.select_for_update().filter(pk__in=[pk for pk in resource_ids if pk])
+             .order_by("pk").values_list("pk", flat=True))
+
+    @transaction.atomic
     def ensure_copy_inventory(self, target_count: int | None = None):
+        self.lock_availability(self.pk)
         target_count = self.DEFAULT_COPY_COUNT if target_count is None else target_count
         existing_accessions = set(self.copies.values_list("accession_number", flat=True))
         copies_to_create: list[BookCopy] = []
@@ -157,10 +169,15 @@ class Resource(models.Model):
 
         if copies_to_create:
             BookCopy.objects.bulk_create(copies_to_create)
+            BookCopy.invalidate_availability_after_commit()
+            from .email_events import record_book_availability
+            record_book_availability(self.pk)
 
         return copies_to_create
 
+    @transaction.atomic
     def sync_copy_inventory(self, target_count: int | None = None):
+        self.lock_availability(self.pk)
         target_count = self.DEFAULT_COPY_COUNT if target_count is None else target_count
         if target_count < 1:
             raise ValidationError("A library title must keep at least 1 copy.")
@@ -374,20 +391,47 @@ class BookCopy(models.Model):
 
     class Meta:
         ordering = ["resource__title", "accession_number"]
+        constraints = [models.UniqueConstraint(fields=["id", "resource"], name="lib_copy_identity_resource")]
 
     def __str__(self) -> str:
         return f"{self.resource.title} ({self.accession_number})"
 
+    @staticmethod
+    def invalidate_availability_after_commit():
+        from .views import bust_resources_cache
+        transaction.on_commit(bust_resources_cache)
+
+    @validate_loan_identity_write
     def save(self, *args, **kwargs):
-        if not self.accession_number:
-            existing_accessions = set(
-                self.resource.copies.exclude(pk=self.pk).values_list("accession_number", flat=True)
-            )
-            next_number = 1
-            while f"{self.resource_id}-{next_number:03d}" in existing_accessions:
-                next_number += 1
-            self.accession_number = f"{self.resource_id}-{next_number:03d}"
-        super().save(*args, **kwargs)
+        update_fields = kwargs.get("update_fields", args[3] if len(args) > 3 else None)
+        if update_fields is not None and not update_fields:
+            return
+        writes_status = update_fields is None or "status" in update_fields
+        with transaction.atomic():
+            old_resource_id = BookCopy.objects.filter(pk=self.pk).values_list("resource_id", flat=True).first() if self.pk else None
+            Resource.lock_availability(self.resource_id, old_resource_id)
+            current = BookCopy.objects.select_for_update().filter(pk=self.pk).first() if self.pk else None
+            if not self.accession_number:
+                existing_accessions = set(
+                    self.resource.copies.exclude(pk=self.pk).values_list("accession_number", flat=True)
+                )
+                next_number = 1
+                while f"{self.resource_id}-{next_number:03d}" in existing_accessions:
+                    next_number += 1
+                self.accession_number = f"{self.resource_id}-{next_number:03d}"
+            super().save(*args, **kwargs)
+            if current is None or (writes_status and current.status != self.status):
+                self.invalidate_availability_after_commit()
+                if self.status == self.CopyStatus.AVAILABLE:
+                    from .email_events import record_book_availability
+                    record_book_availability(self.resource_id)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        Resource.lock_availability(self.resource_id)
+        result = super().delete(*args, **kwargs)
+        self.invalidate_availability_after_commit()
+        return result
 
 
 class LoanQuerySet(models.QuerySet):
@@ -446,6 +490,9 @@ class Loan(models.Model):
     borrower_phone = models.CharField(max_length=30, blank=True)
     borrower_student_id = models.CharField(max_length=40, blank=True)
     book_copy = models.ForeignKey(BookCopy, on_delete=models.PROTECT, related_name="loans")
+    # PostgreSQL's trigger derives this from book_copy on EVERY write. Its
+    # composite FK cascades copy reassignments; clients cannot forge this key.
+    identity_resource_id = models.CharField(max_length=50, editable=False, blank=True)
     status = models.CharField(max_length=20, choices=LoanStatus.choices, default=LoanStatus.REQUESTED)
     loan_type = models.CharField(max_length=10, choices=LoanType.choices, default=LoanType.BORROW)
     requested_at = models.DateTimeField(default=timezone.now)
@@ -486,6 +533,18 @@ class Loan(models.Model):
                 & (~Q(calculation_policy="london_v1") | Q(calculation_timezone="Europe/London"))
                 & (~Q(calculation_policy="user_local_v1") | Q(operational_timezone=models.F("calculation_timezone")))
             ), name="lib_loan_policy_zones",
+        ), models.UniqueConstraint(
+            fields=["identity_resource_id", "borrower"],
+            condition=Q(status__in=["requested", "reserved", "approved", "borrowed", "overdue"]),
+            name="lib_loan_active_account",
+        ), models.UniqueConstraint(
+            models.F("identity_resource_id"), NullIf(Lower(Trim("borrower_email")), models.Value("")),
+            condition=Q(status__in=["requested", "reserved", "approved", "borrowed", "overdue"]),
+            name="lib_loan_active_email",
+        ), models.CheckConstraint(
+            condition=(~Q(status__in=["requested", "reserved", "approved", "borrowed", "overdue"])
+                       | Q(borrower__isnull=False) | Q(borrower_email__regex=r"[^ ]")),
+            name="lib_loan_active_identity",
         )]
 
     def __str__(self) -> str:
@@ -553,6 +612,9 @@ class Loan(models.Model):
 
     def clean(self):
         super().clean()
+        # Match the database's lower(btrim(email)) identity, without modifying
+        # email addresses or timestamps in existing rows during migration.
+        self.borrower_email = self.borrower_email.strip(" ")
         previous = None
         if not self.borrower_id and not (self.borrower_name and self.borrower_email):
             raise ValidationError("A loan must include either a linked borrower or a borrower name and email.")
@@ -617,16 +679,12 @@ class Loan(models.Model):
         same_borrower_filter = Q()
         if self.borrower_id:
             same_borrower_filter = Q(borrower_id=self.borrower_id)
-        elif self.borrower_email:
-            same_borrower_filter = Q(borrower_email__iexact=self.borrower_email)
-        elif self.borrower_name and self.borrower_phone:
-            same_borrower_filter = Q(
-                borrower_name__iexact=self.borrower_name,
-                borrower_phone=self.borrower_phone,
-            )
+        if self.borrower_email:
+            conflicting_for_resource = conflicting_for_resource.alias(identity_email=Lower(Trim("borrower_email")))
+            same_borrower_filter |= Q(identity_email=self.borrower_email.lower())
 
         if same_borrower_filter and conflicting_for_resource.filter(same_borrower_filter).exists():
-            raise ValidationError({"book_copy": "You already have an active borrow or reservation request for this book."})
+            raise ValidationError({"book_copy": DUPLICATE_MESSAGE})
 
         if self.status == self.LoanStatus.RESERVED:
             if conflicting_for_copy.filter(status=self.LoanStatus.RESERVED).exists():
@@ -645,6 +703,7 @@ class Loan(models.Model):
             if conflicting_for_copy.filter(status__in=(*self.pre_checkout_statuses(), *self.circulation_statuses())).exists():
                 raise ValidationError({"book_copy": "This copy already has an active borrowing flow."})
 
+    @validate_loan_identity_write
     def save(self, *args, **kwargs):
         # Preserve Django's legacy positional save arguments while ensuring that
         # automatic deadline/revision fields join the actual update_fields set.
@@ -661,8 +720,16 @@ class Loan(models.Model):
             if not update_fields:
                 return
         with transaction.atomic():
+            resource_id = BookCopy.objects.filter(pk=self.book_copy_id).values_list("resource_id", flat=True).first()
+            old_resource_id = Loan.objects.filter(pk=self.pk).values_list("book_copy__resource_id", flat=True).first() if self.pk else None
+            Resource.lock_availability(resource_id, old_resource_id)
+            self.identity_resource_id = resource_id
             previous = Loan.objects.select_for_update().filter(pk=self.pk).first() if self.pk else None
             if previous:
+                if (previous.loan_type == self.LoanType.NOTIFY and self.loan_type == self.LoanType.BORROW
+                        and (update_fields is None or "loan_type" in update_fields)
+                        and previous.status != self.LoanStatus.REQUESTED):
+                    raise ValidationError({"loan_type": "Only pending notification registrations can be moved to the borrow queue. Reload the request."})
                 self.validate_confirmation_history({
                     field: getattr(previous, field) for field in ("status", "approved_at", "borrowed_at")
                 })
@@ -737,9 +804,9 @@ class Loan(models.Model):
             if update_fields is not None:
                 kwargs["update_fields"] = update_fields | changed_fields
             super().save(*args, **kwargs)
-            self.sync_book_copy_status(self.book_copy)
+            excluded_copy_id = self.sync_book_copy_status(self.book_copy)
             from .email_events import record_loan_change
-            record_loan_change(self, previous)
+            record_loan_change(self, previous, availability_excluded_copy_id=excluded_copy_id)
 
     def validate_confirmation_history(self, previous):
         for field in ("approved_at", "borrowed_at"):
@@ -864,17 +931,37 @@ class Loan(models.Model):
 
     @classmethod
     def sync_book_copy_status(cls, book_copy: BookCopy | None):
+        """Recalculate occupancy; return a copy to exclude from this operation's notices."""
         if not book_copy:
             return
-        next_status = cls.next_copy_status(book_copy)
-        if book_copy.status != next_status:
+        with transaction.atomic():
+            Resource.lock_availability(book_copy.resource_id)
+            current = BookCopy.objects.select_for_update().filter(pk=book_copy.pk).first()
+            if current is None:
+                return
+            next_status = cls.next_copy_status(current)
+            # Restore legacy occupancy calculation, but this automatic change
+            # alone is not evidence that a lost/maintenance copy became usable.
+            excluded_copy_id = (current.pk if current.status in (
+                BookCopy.CopyStatus.MAINTENANCE, BookCopy.CopyStatus.LOST
+            ) and next_status == BookCopy.CopyStatus.AVAILABLE else None)
+            if current.status != next_status:
+                BookCopy.objects.filter(pk=current.pk).update(status=next_status, updated_at=timezone.now())
+                BookCopy.invalidate_availability_after_commit()
+                if next_status == BookCopy.CopyStatus.AVAILABLE and excluded_copy_id is None:
+                    from .email_events import record_book_availability
+                    record_book_availability(current.resource_id)
             book_copy.status = next_status
-            book_copy.save(update_fields=["status", "updated_at"])
+            return excluded_copy_id
 
+    @transaction.atomic
     def delete(self, *args, **kwargs):
         book_copy = self.book_copy
+        Resource.lock_availability(book_copy.resource_id)
         super().delete(*args, **kwargs)
-        self.sync_book_copy_status(book_copy)
+        excluded_copy_id = self.sync_book_copy_status(book_copy)
+        from .email_events import record_book_availability
+        record_book_availability(book_copy.resource_id, excluded_copy_id=excluded_copy_id)
 
 
 class NotificationLog(models.Model):

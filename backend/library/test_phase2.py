@@ -335,6 +335,7 @@ class Phase2MigrationTests(TransactionTestCase):
         old = [("library", "0023_loan_delivery_days")]
         new = [("library", "0024_phase2_timezones_email")]
         executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
         executor.migrate(old)
         try:
             apps = executor.loader.project_state(old).apps
@@ -349,11 +350,13 @@ class Phase2MigrationTests(TransactionTestCase):
             apps.get_model("library", "NotificationLog").objects.create(loan_id="migration-loan", notification_type="due_soon")
             executor = MigrationExecutor(connection)
             executor.migrate(new)
-            row = Loan.objects.get(pk="migration-loan")
+            # Inspect 0024 with its historical model, not columns introduced by
+            # later migrations such as the 0025 database identity guard.
+            row = executor.loader.project_state(new).apps.get_model("library", "Loan").objects.get(pk="migration-loan")
             self.assertEqual((row.approved_at, row.borrowed_at, row.due_date, row.delivery_days), (NOW, NOW, date(2026, 8, 20), 5))
             self.assertTrue(all(getattr(row, field) is None for field in Loan.POLICY_FIELDS))
             self.assertEqual(row.email_deadline_revision, 0)
-            self.assertEqual(NotificationLog.objects.filter(loan=row, notification_type="due_soon").count(), 1)
+            self.assertEqual(NotificationLog.objects.filter(loan_id=row.pk, notification_type="due_soon").count(), 1)
             self.assertEqual(NotificationLog._meta.db_table, "library_notification_log")
             self.assertEqual(EmailOutbox.objects.count(), 0)
             profile = UserProfile.objects.get(user_id=old_user.pk)
@@ -367,7 +370,7 @@ class Phase2MigrationTests(TransactionTestCase):
             self.assertEqual(historical.get_model("library", "Loan").objects.get(pk="migration-loan").due_date, date(2026, 8, 20))
             self.assertEqual(historical.get_model("library", "NotificationLog").objects.filter(loan_id="migration-loan").count(), 1)
         finally:
-            MigrationExecutor(connection).migrate(new)
+            MigrationExecutor(connection).migrate(latest)
 
 
 @skipUnless(connection.vendor == "postgresql", "Requires an isolated PostgreSQL instance; SQLite cannot prove row locking.")
