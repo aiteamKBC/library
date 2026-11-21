@@ -10,7 +10,7 @@ from django.db import connection, transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from .email_events import identity, saved_zone
+from .email_events import identity, saved_zone, availability_eligible, DEADLINE_EVENTS, deadline_event_is_current
 from .email_models import EmailOutbox, EmailAttempt
 from .email_policy import owns_event, require_worker, require_live_delivery, recipient_allowed, email_provider
 from .email_providers import create_email_client
@@ -28,10 +28,12 @@ def clear_lease(row):
 
 @contextmanager
 def locked_message(pk):
-    """Loan -> outbox lock order matches transactional Loan.save producers."""
-    from .models import Loan
+    """Resource -> Loan -> Outbox, matching availability writers."""
+    from .models import Loan, Resource
     with transaction.atomic():
         loan_id = EmailOutbox.objects.filter(pk=pk).values_list("loan_id", flat=True).first()
+        resource_id = Loan.objects.filter(pk=loan_id).values_list("book_copy__resource_id", flat=True).first() if loan_id else None
+        Resource.lock_availability(resource_id)
         loan = Loan.objects.select_for_update().filter(pk=loan_id).first() if loan_id else None
         row = EmailOutbox.objects.select_for_update().filter(pk=pk).first()
         yield row, loan
@@ -46,6 +48,10 @@ def stop(row, state, code):
 
 def eligibility(row, loan, now):
     """Returns (action, code). Re-evaluated at the durable submission boundary."""
+    if row.event_type in ("notify_registered", "notify_available") and loan and loan.loan_type != "notify":
+        return "cancelled", "notify_request_converted"
+    if row.event_type in DEADLINE_EVENTS and not deadline_event_is_current(row, loan):
+        return "cancelled", "stale_loan_deadline"
     if not owns_event(row.event_type):
         return "blocked", "n8n_handoff_required"
     if not recipient_allowed(row.recipient_email):
@@ -82,9 +88,23 @@ def eligibility(row, loan, now):
         if plan is None or "reminder:" + plan.logical_key != row.idempotency_key:
             return "cancelled", "stale_reminder"
     if row.event_type in ("notify_available", "book_now_available"):
-        if (loan is None or loan.status != "requested" or not loan.book_copy_id
-                or loan.book_copy.resource.available_copies < 1):
+        expected_type = "notify" if row.event_type == "notify_available" else "borrow"
+        if loan is None or loan.loan_type != expected_type or not availability_eligible(loan):
             return "cancelled", "availability_changed"
+        # Old return-cycle outboxes must not cause a second send for an already
+        # notified enrollment. Resource lock serializes concurrent submissions.
+        siblings = EmailOutbox.objects.filter(loan=loan, event_type=row.event_type,
+                                               recipient_role=row.recipient_role).exclude(pk=row.pk)
+        if siblings.filter(status__in=("accepted", "uncertain", "submitting")).exists():
+            return "cancelled", "availability_already_notified"
+    if row.event_type in DEADLINE_EVENTS and EmailOutbox.objects.filter(
+        loan=loan, event_type__in=DEADLINE_EVENTS, recipient_key=row.recipient_key,
+        recipient_role=row.recipient_role, status="submitting",
+    ).exclude(pk=row.pk).exists():
+        # Serialize deadline submissions, without holding a DB lock during IO.
+        # Expired submitting leases become uncertain through normal recovery.
+        row.available_at = now + timedelta(seconds=30)
+        return ("retry_wait" if row.attempts_count else "pending"), "loan_email_in_flight"
     return None, ""
 
 
@@ -209,7 +229,10 @@ class EmailWorker:
                 current.available_at = finished + timedelta(seconds=delay)
             clear_lease(current)
             current.save()
-            if result.outcome == "accepted" and current.event_type == "notify_available" and loan and loan.status == "requested":
+            # locked_message re-reads and locks the request after provider IO.
+            # Acceptance of an old notification must not close a converted loan.
+            if (result.outcome == "accepted" and current.event_type == "notify_available"
+                    and loan and loan.loan_type == "notify" and loan.status == "requested" and loan.returned_at is None):
                 loan.status = "notify"
                 loan.save(update_fields={"status"})
             return current.status

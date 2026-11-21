@@ -68,6 +68,13 @@ class BookCopyAdmin(DeviceLocalModelAdmin):
     list_filter = ("status", "resource__category")
     search_fields = ("accession_number", "resource__title", "resource__author")
 
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        try:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        except ValidationError as exc:
+            self.message_user(request, " ".join(exc.messages), level="ERROR")
+            return HttpResponseRedirect(request.path)
+
 
 @admin.register(Loan)
 class LoanAdmin(DeviceLocalModelAdmin):

@@ -181,6 +181,9 @@ class EmailSystemTests(TestCase):
         self.loan.save()
         self.assertIn("/feedback?token=", self.loan.email_messages.get(event_type="loan_returned").payload["feedback_url"])
         self.assertEqual(waiting.email_messages.filter(event_type="book_now_available").count(), 1)
+        # The first shelf copy is covered by the pending borrow request.
+        self.assertFalse(notify.email_messages.filter(event_type="notify_available").exists())
+        BookCopy.objects.create(resource=self.resource, accession_number="MAIL-SPARE")
         self.assertEqual(notify.email_messages.filter(event_type="notify_available").count(), 1)
 
     def test_transaction_rollback_removes_source_and_outbox(self):

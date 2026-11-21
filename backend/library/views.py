@@ -702,6 +702,7 @@ class LoanViewSet(viewsets.ModelViewSet):
             raise ValidationError({"status": "Only loans with status 'requested' can be approved through this action."})
 
         with transaction.atomic():
+            Resource.lock_availability(loan.book_copy.resource_id)
             locked_copies = list(
                 BookCopy.objects.select_for_update(nowait=False)
                 .filter(resource=loan.book_copy.resource)
