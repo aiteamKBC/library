@@ -9,6 +9,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .email_models import EmailOutbox
+from .email_activation import coalesce_wakeups, wake_after_commit
 from .email_policy import enqueue_enabled, owns_event, routes_to_django
 from .n8n_email_templates import ADMIN_RECIPIENT, template_version
 from .timezones import validated_timezone
@@ -83,6 +84,7 @@ def availability_eligible(loan):
     return any(target.pk == loan.pk for target in availability_targets(loan.book_copy.resource_id))
 
 
+@coalesce_wakeups()
 def record_book_availability(resource_id, *, excluded_copy_id=None):
     """Enqueue in the source transaction, under the shared resource mutex."""
     if not transaction.get_connection().in_atomic_block:
@@ -177,6 +179,8 @@ def enqueue(*, event, event_id, user, email, role, payload, loan=None, book_requ
     if existing:
         if availability_loan is not None:
             revive_unsent_availability(existing, availability_loan)
+        if existing.status == "pending":
+            wake_after_commit()
         return existing
     if event in AVAILABILITY_EVENTS:
         expected_type = "notify" if event == "notify_available" else "borrow"
@@ -190,7 +194,7 @@ def enqueue(*, event, event_id, user, email, role, payload, loan=None, book_requ
         code = "n8n_handoff_required"
     try:
         with transaction.atomic():
-            return EmailOutbox.objects.create(
+            row = EmailOutbox.objects.create(
                 event_id=event_id, event_type=event, message_kind=kind,
                 loan=loan, book_request=book_request, recipient=user,
                 recipient_key=recipient_key, recipient_email=email, recipient_role=role,
@@ -200,10 +204,15 @@ def enqueue(*, event, event_id, user, email, role, payload, loan=None, book_requ
                 error_code=code, error_summary="Recipient timezone or event ownership requires review." if code else "",
                 **snapshots,
             )
+            if row.status == "pending":
+                wake_after_commit()
+            return row
     except IntegrityError:
         existing = EmailOutbox.objects.filter(idempotency_key=key).first()
         if existing is None:
             raise
+        if existing.status == "pending":
+            wake_after_commit()
         return existing
 
 
@@ -270,6 +279,7 @@ def cancel_stale_reminders(loan):
                 error_code="loan_changed", error_summary="Loan no longer matches the reminder snapshot.", updated_at=timezone.now())
 
 
+@coalesce_wakeups()
 def record_loan_change(loan, previous, *, availability_excluded_copy_id=None):
     # Compare persisted fields, including update_fields exclusions, rather than a
     # caller's potentially dirty in-memory instance.
@@ -316,6 +326,7 @@ def record_loan_change(loan, previous, *, availability_excluded_copy_id=None):
         record_book_availability(previous.book_copy.resource_id, excluded_copy_id=availability_excluded_copy_id)
 
 
+@coalesce_wakeups()
 def record_book_request(request):
     if not enqueue_enabled():
         return

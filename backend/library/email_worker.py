@@ -268,4 +268,6 @@ def retry_message(pk, *, actor):
         row.status, row.available_at = "pending", timezone.now()
         row.error_code = row.error_summary = ""
         row.save()
+        from .email_activation import wake_after_commit
+        wake_after_commit()
         return row

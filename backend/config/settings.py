@@ -206,6 +206,9 @@ if LIBRARY_GMAIL_CREDENTIALS_FILE and not ISOLATED_TESTS:
     del _gmail_vault_values, _gmail_name, _gmail_value
 LIBRARY_EMAIL_LEASE_SECONDS = 180
 LIBRARY_EMAIL_MAX_ATTEMPTS = 5
+# Local OS activation is separate from every existing live-delivery gate.
+LIBRARY_EMAIL_WAKE_ENABLED = env_bool("LIBRARY_EMAIL_WAKE_ENABLED", False)
+LIBRARY_EMAIL_WAKE_SOCKET = os.getenv("LIBRARY_EMAIL_WAKE_SOCKET", "")
 # Optional proven London transition. Empty retains the original Cairo calendar
 # for new legacy confirmations; no historical transition date is invented.
 LIBRARY_LONDON_CUTOVER_AT = os.getenv("LIBRARY_LONDON_CUTOVER_AT", "")

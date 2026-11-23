@@ -8,6 +8,7 @@ from .email_events import enqueue, event_uuid, identity, loan_payload, saved_zon
 from .email_models import EmailOutbox
 from .email_policy import enqueue_enabled, owns_event, routes_to_django
 from .notification_timing import due_reminder
+from .email_activation import coalesce_wakeups, wake_after_commit
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ def revive_unsent_reminder(row, loan, plan):
     row.lease_token = row.lease_expires_at = None
     row.worker_id = ""
     row.save()
+    wake_after_commit()
     return True
 
 
@@ -44,6 +46,7 @@ def last_accepted_day(loan, recipient_key):
     return max(days) if days else None
 
 
+@coalesce_wakeups()
 def schedule_reminders(*, now=None, limit=1000):
     if not (enqueue_enabled() and getattr(settings, "LIBRARY_EMAIL_SCHEDULER_ENABLED", False)):
         return {"disabled": True, "scanned": 0, "queued": 0, "missing_timezone": 0}

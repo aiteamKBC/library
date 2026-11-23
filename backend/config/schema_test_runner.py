@@ -1,4 +1,4 @@
-"""Phase 4A: synthetic PostgreSQL model tables, with NO migration execution."""
+"""Synthetic model tables with NO migration execution or application DB access."""
 from unittest import skip
 from django.apps import apps
 from django.conf import settings
@@ -25,6 +25,16 @@ class SchemaOnlyRunner(DiscoverRunner):
     def setup_databases(self, **kwargs):
         conn = connections["default"]
         cfg = conn.settings_dict
+        if settings.LIBRARY_ISOLATED_TESTS and conn.vendor == "sqlite" and cfg["NAME"] == ":memory:":
+            if conn.introspection.table_names():
+                raise RuntimeError("Refusing to reuse existing synthetic tables.")
+            with conn.schema_editor() as editor:
+                for model in apps.get_models():
+                    if model._meta.managed and not model._meta.proxy:
+                        editor.create_model(model)
+            emit_post_migrate_signal(verbosity=0, interactive=False, db="default")
+            self.log("In-memory model tables only; PostgreSQL concurrency is NOT verified.")
+            return []
         if (not settings.LIBRARY_ISOLATED_TESTS or conn.vendor != "postgresql"
                 or cfg["HOST"] != "127.0.0.1" or cfg["USER"] != "kbc_test_admin"
                 or cfg["NAME"] != "kbc_phase3_tests" or cfg["TEST"]["NAME"] != "test_kbc_phase3_tests"):
