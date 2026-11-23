@@ -98,10 +98,17 @@ def record_book_availability(resource_id, *, excluded_copy_id=None):
 
 
 def saved_zone(user):
+    """Resolve an email timezone without changing the user's saved preference.
+
+    An explicit email-only fallback covers absence, never a corrupt preference
+    or an unlinked recipient. Loan calendars keep their separate policy.
+    """
     if user is None:
         return None
     from .models import UserProfile
     value = UserProfile.objects.filter(user_id=user.pk).values_list("time_zone", flat=True).first()
+    if value is None or value == "":
+        value = getattr(settings, "LIBRARY_EMAIL_FALLBACK_TIMEZONE", "")
     try:
         validated_timezone(value)
     except (ValidationError, TypeError, ValueError):

@@ -165,8 +165,12 @@ LIBRARY_EMAIL_N8N_HANDOFF_CONFIRMED = os.getenv("LIBRARY_EMAIL_N8N_HANDOFF_CONFI
 LIBRARY_EMAIL_N8N_COMPAT_ENABLED = os.getenv("LIBRARY_EMAIL_N8N_COMPAT_ENABLED", "false").lower() == "true"
 LIBRARY_EMAIL_OWNED_EVENTS = tuple(x.strip() for x in os.getenv("LIBRARY_EMAIL_OWNED_EVENTS", "").split(",") if x.strip())
 LIBRARY_EMAIL_ADMIN_USER_IDS = tuple(x.strip() for x in os.getenv("LIBRARY_EMAIL_ADMIN_USER_IDS", "").split(",") if x.strip())
-# Exact mailboxes only; an empty list denies every Graph recipient.
+# Default to exact approved mailboxes. Source-scoped delivery is a separate opt-in.
+LIBRARY_EMAIL_RECIPIENT_MODE = os.getenv("LIBRARY_EMAIL_RECIPIENT_MODE", "allowlist").strip().lower()
 LIBRARY_EMAIL_RECIPIENT_ALLOWLIST = tuple(x.strip() for x in os.getenv("LIBRARY_EMAIL_RECIPIENT_ALLOWLIST", "").split(",") if x.strip())
+# Email-only fallback for a missing saved timezone; empty retains blocked behavior.
+# It never writes profiles or changes loan dates/policy. Invalid saved zones stay blocked.
+LIBRARY_EMAIL_FALLBACK_TIMEZONE = os.getenv("LIBRARY_EMAIL_FALLBACK_TIMEZONE", "")
 LIBRARY_GRAPH_TENANT_ID = os.getenv("LIBRARY_GRAPH_TENANT_ID", "")
 LIBRARY_GRAPH_CLIENT_ID = os.getenv("LIBRARY_GRAPH_CLIENT_ID", "")
 LIBRARY_GRAPH_CLIENT_SECRET = os.getenv("LIBRARY_GRAPH_CLIENT_SECRET", "")

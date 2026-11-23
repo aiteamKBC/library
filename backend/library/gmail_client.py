@@ -20,7 +20,7 @@ from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
 
-from .email_policy import gmail_identities, owns_event, recipient_allowed, require_live_gmail
+from .email_policy import gmail_identities, owns_event, recipient_rejection, require_live_gmail
 from .email_transport import DeliveryResult, http_request, retry_after_seconds
 
 SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
@@ -102,8 +102,9 @@ class GmailClient:
             if not owns_event(message.event_type):
                 raise ImproperlyConfigured("Django does not own this email event.")
         # Check before BOTH OAuth and send, including when a token is cached.
-        if not recipient_allowed(message.recipient_email):
-            return DeliveryResult("permanent_failure", code="recipient_not_allowlisted")
+        rejection = recipient_rejection(message.recipient_email, message=message)
+        if rejection:
+            return DeliveryResult("permanent_failure", code=rejection)
         account, sender, reply, name = gmail_identities()
         validate_email(message.recipient_email)
         if not isinstance(subject, str) or not subject or "\r" in subject or "\n" in subject:

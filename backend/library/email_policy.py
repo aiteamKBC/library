@@ -48,14 +48,38 @@ def recipient_allowlist():
     return frozenset(result)
 
 
-def recipient_allowed(address):
+def recipient_mode():
+    value = getattr(settings, "LIBRARY_EMAIL_RECIPIENT_MODE", "allowlist")
+    if value not in ("allowlist", "source_scoped"):
+        raise ImproperlyConfigured("LIBRARY_EMAIL_RECIPIENT_MODE must be allowlist or source_scoped.")
+    return value
+
+
+def recipient_rejection(address, *, message=None):
+    """One policy for worker eligibility and the final provider boundary.
+
+    Source-scoped delivery requires the full message context; an address alone
+    never authorizes production delivery. The default allowlist path retains its
+    existing behavior and does not need source rows or database access.
+    """
+    mode = recipient_mode()
+    rejection = "recipient_not_allowlisted" if mode == "allowlist" else "recipient_source_mismatch"
     if not isinstance(address, str) or address != address.strip() or "\r" in address or "\n" in address:
-        return False
+        return rejection
     try:
         validate_email(address)
     except ValidationError:
-        return False
-    return address.casefold() in recipient_allowlist()
+        return rejection
+    if mode == "allowlist":
+        return "" if address.casefold() in recipient_allowlist() else rejection
+    if message is None:
+        return rejection
+    from .email_recipients import source_recipient_allowed
+    return "" if source_recipient_allowed(message, address) else rejection
+
+
+def recipient_allowed(address, *, message=None):
+    return not recipient_rejection(address, message=message)
 
 
 def graph_mailbox_target():
@@ -88,7 +112,7 @@ def require_live_graph():
             and getattr(settings, "LIBRARY_GRAPH_CREDENTIALS_APPROVED", False)
             and getattr(settings, "LIBRARY_EMAIL_N8N_HANDOFF_CONFIRMED", False)):
         raise ImproperlyConfigured("Live Graph delivery needs explicit activation, rotated credentials and n8n handoff.")
-    if not recipient_allowlist():
+    if recipient_mode() == "allowlist" and not recipient_allowlist():
         raise ImproperlyConfigured("Configure an explicit recipient allowlist before live Graph activation.")
     for name in ("LIBRARY_GRAPH_TENANT_ID", "LIBRARY_GRAPH_CLIENT_ID", "LIBRARY_GRAPH_CLIENT_SECRET", "LIBRARY_GRAPH_SENDER"):
         if not getattr(settings, name, ""):
@@ -132,7 +156,7 @@ def require_live_gmail():
             and getattr(settings, "LIBRARY_GMAIL_CREDENTIALS_APPROVED", False)
             and getattr(settings, "LIBRARY_EMAIL_N8N_HANDOFF_CONFIRMED", False)):
         raise ImproperlyConfigured("Live Gmail delivery needs explicit activation, approved OAuth credentials and n8n handoff.")
-    if not recipient_allowlist():
+    if recipient_mode() == "allowlist" and not recipient_allowlist():
         raise ImproperlyConfigured("Configure an explicit recipient allowlist before live Gmail activation.")
     for name in ("LIBRARY_GMAIL_CLIENT_ID", "LIBRARY_GMAIL_CLIENT_SECRET", "LIBRARY_GMAIL_REFRESH_TOKEN"):
         if not isinstance(getattr(settings, name, None), str) or not getattr(settings, name).strip():
