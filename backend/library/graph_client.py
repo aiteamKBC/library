@@ -9,7 +9,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.validators import validate_email
 
-from .email_policy import require_live_graph, owns_event, recipient_allowed, graph_mailbox_target
+from .email_policy import require_live_graph, owns_event, recipient_rejection, graph_mailbox_target
 # Keep existing imports/tests/API compatible while the worker is provider-neutral.
 from .email_transport import DeliveryResult as GraphResult, http_request, retry_after_seconds, safe_request_id
 
@@ -61,8 +61,9 @@ class GraphClient:
                 raise ImproperlyConfigured("Django does not own this email event.")
         # Must precede token acquisition as well as sendMail, even with a fake
         # transport. Do not replace the recipient with a test address.
-        if not recipient_allowed(message.recipient_email):
-            return GraphResult("permanent_failure", code="recipient_not_allowlisted")
+        rejection = recipient_rejection(message.recipient_email, message=message)
+        if rejection:
+            return GraphResult("permanent_failure", code=rejection)
         sender = settings.LIBRARY_GRAPH_SENDER
         validate_email(sender)
         validate_email(message.recipient_email)

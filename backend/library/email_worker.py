@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from .email_events import identity, saved_zone, availability_eligible, DEADLINE_EVENTS, deadline_event_is_current
 from .email_models import EmailOutbox, EmailAttempt
-from .email_policy import owns_event, require_worker, require_live_delivery, recipient_allowed, email_provider
+from .email_policy import owns_event, require_worker, require_live_delivery, recipient_rejection, email_provider
 from .email_providers import create_email_client
 from .email_scheduler import last_accepted_day
 from .email_templates import render_email
@@ -54,8 +54,9 @@ def eligibility(row, loan, now):
         return "cancelled", "stale_loan_deadline"
     if not owns_event(row.event_type):
         return "blocked", "n8n_handoff_required"
-    if not recipient_allowed(row.recipient_email):
-        return "blocked", "recipient_not_allowlisted"
+    rejection = recipient_rejection(row.recipient_email, message=row)
+    if rejection:
+        return "blocked", rejection
     zone = saved_zone(row.recipient)
     if not zone:
         return "blocked", "recipient_timezone_missing"
@@ -204,7 +205,7 @@ class EmailWorker:
                 result = DeliveryResult("uncertain", code="submission_lease_expired")
             # Only allow the worker's sanitized result vocabulary into durable logs.
             allowed_codes = {"", "graph_auth_rejected", "graph_auth_unavailable", "graph_submission_unknown",
-                             "recipient_not_allowlisted",
+                             "recipient_not_allowlisted", "recipient_source_mismatch",
                              "graph_temporary_rejection", "graph_token_rejected", "graph_permanent_rejection",
                              "gmail_auth_rejected", "gmail_auth_unavailable", "gmail_reauthorization_required",
                              "gmail_scope_missing", "gmail_token_rejected", "gmail_rate_limited",
