@@ -18,6 +18,7 @@ CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 N8N_LIBRARY_WEBHOOK_URL = ""
 KBC_ALLOWLIST_DATABASE_URL = ""
+KBC_LEARNERS_DATABASE_URL = ""
 LIBRARY_LONDON_CUTOVER_AT = "2027-01-01T00:00:00Z"  # Synthetic test boundary only.
 SECRET_KEY = "isolated-library-tests-only"
 ALLOWED_HOSTS = ["testserver", "localhost", "127.0.0.1"]

@@ -1007,7 +1007,7 @@ class StudentLoginView(APIView):
         try:
             allowlisted_student = fetch_allowlisted_student(email)
         except RuntimeError as exc:
-            raise ValidationError({"detail": "Student sign-in is not configured yet. Please contact the library team."}) from exc
+            raise ValidationError({"detail": "Student sign-in is temporarily unavailable. Please contact the library team."}) from exc
 
         if allowlisted_student is None:
             raise ValidationError({"email": "This email address is not approved for the KBC library system."})

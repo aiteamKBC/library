@@ -1,6 +1,7 @@
 from rest_framework.routers import DefaultRouter
 
 from django.urls import path
+from . import lms_sso
 
 from .views import (
     AdminLoginView,
@@ -29,6 +30,8 @@ router.register("requests", BookRequestViewSet, basename="request")
 router.register("support-messages", SupportMessageViewSet, basename="support-message")
 
 urlpatterns = [
+    path("auth/lms/start/", lms_sso.start, name="lms-sso-start"),
+    path("auth/lms/exchange/", lms_sso.ExchangeView.as_view(), name="lms-sso-exchange"),
     path("auth/login/", AdminLoginView.as_view(), name="auth-login"),
     path("auth/student-login/", StudentLoginView.as_view(), name="auth-student-login"),
     path("auth/me/", AuthMeView.as_view(), name="auth-me"),

@@ -29,6 +29,13 @@ def loan_return_evidence_upload_to(instance: "Loan", filename: str) -> str:
     return f"loan-return-evidence/{instance.id}/{uuid.uuid4().hex}{extension}"
 
 
+class LibrarySSORedemption(models.Model):
+    """Shared across workers: a browser-bound login can be redeemed only once."""
+
+    state_hash = models.CharField(max_length=64, primary_key=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+
 class UserProfile(models.Model):
     class Role(models.TextChoices):
         STUDENT = "student", "Student"

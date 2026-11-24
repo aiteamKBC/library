@@ -508,7 +508,7 @@ export default function AccountPage() {
                 Manage your library account in one place
               </h1>
               <p className="text-[#EEE7FF] text-base md:text-lg max-w-2xl leading-relaxed">
-                Use your Aptem email to access your library account and track your loans, requests and library updates in one place.
+                Use your registered learner email to access your library account and track your loans, requests and library updates in one place.
               </p>
             </div>
           </div>
@@ -524,15 +524,15 @@ export default function AccountPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-[#241453]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                      Why sign in with your Aptem email?
+                      Why sign in with your learner email?
                     </h2>
                     <p className="text-sm text-gray-500">Fast access for approved learners using only the email already listed by the college.</p>
                   </div>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   {[
-                    { icon: "ri-mail-check-line", title: "Approved Access Only", text: "Only Aptem email addresses listed by the college can access the library system." },
-                    { icon: "ri-shield-user-line", title: "Instant Sign-In", text: "Enter your Aptem email and the system signs you in immediately when the address is recognised." },
+                    { icon: "ri-mail-check-line", title: "Registered Learners Only", text: "Email addresses registered in the college learner directory can access the library system." },
+                    { icon: "ri-shield-user-line", title: "Instant Sign-In", text: "Enter your registered email and the system signs you in immediately when the address is recognised." },
                     { icon: "ri-bookmark-3-line", title: "Loan and Request Tracking", text: "See your borrow requests, return history and book suggestions in one place." },
                     { icon: "ri-notification-3-line", title: "Availability Alerts", text: "Keep your activity linked to your student profile so follow-up stays simple." },
                   ].map((item) => (
@@ -558,10 +558,10 @@ export default function AccountPage() {
 
               <div className="mb-6">
                 <h2 className="text-2xl font-bold text-[#241453]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                  Sign in with your Aptem email
+                  Sign in with your learner email
                 </h2>
                 <p className="text-sm text-gray-500 mt-1">
-                  Enter the Aptem email address already listed in the college allowlist to access your student library account.
+                  Enter the email address registered with the college to access your student library account.
                 </p>
               </div>
 
@@ -579,13 +579,13 @@ export default function AccountPage() {
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Aptem Email Address</label>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Learner Email Address</label>
                   <input
                     required
                     type="email"
                     value={loginForm.email}
                     onChange={(event) => setLoginForm({ email: event.target.value })}
-                    placeholder="Enter your Aptem email"
+                    placeholder="Enter your registered email"
                     className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl outline-none focus:border-[#442F73] focus:ring-2 focus:ring-[#442F73]/10 text-gray-800"
                   />
                 </div>
@@ -595,9 +595,9 @@ export default function AccountPage() {
                       <i className="ri-check-double-line text-base" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-[#241453]">Allowlisted Aptem email access</p>
+                      <p className="text-sm font-semibold text-[#241453]">Registered learner access</p>
                       <p className="mt-1 text-sm leading-6 text-gray-500">
-                        If this Aptem email exists in the college allowlist, you will be signed in directly to your library account.
+                        If your email exists in the college learner directory, you will be signed in directly to your library account.
                       </p>
                     </div>
                   </div>

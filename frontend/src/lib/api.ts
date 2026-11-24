@@ -253,6 +253,17 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
 }
 
 export const api = {
+  lmsSignInUrl: `${API_BASE}/auth/lms/start/`,
+  completeLmsSignIn: async (assertion: string) => {
+    const session = await request<AuthSession>("/auth/lms/exchange/", {
+      method: "POST",
+      credentials: "include",
+      body: JSON.stringify({ assertion }),
+    }, { auth: "none" });
+    setAuthToken(session.token);
+    publishUser(session.user);
+    return session;
+  },
   loginAdmin: async (identifier: string, password: string) => {
     const session = await request<AuthSession>("/auth/login/", {
       method: "POST",

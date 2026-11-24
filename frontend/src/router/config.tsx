@@ -9,6 +9,7 @@ const Resources = lazy(() => import("../pages/resources/page"));
 const ResourceDetail = lazy(() => import("../pages/resources/detail/page"));
 const Support = lazy(() => import("../pages/support/page"));
 const Account = lazy(() => import("../pages/account/page"));
+const LmsSignIn = lazy(() => import("../pages/lms-signin/page"));
 const Admin = lazy(() => import("../pages/admin/page"));
 const Feedback = lazy(() => import("../pages/feedback/page"));
 
@@ -22,6 +23,10 @@ const loadingFallback = (
 );
 
 const routes: RouteObject[] = [
+  {
+    path: "/auth/lms/callback",
+    element: <Suspense fallback={loadingFallback}><LmsSignIn /></Suspense>,
+  },
   {
     path: "/",
     element: (

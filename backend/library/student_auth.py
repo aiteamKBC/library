@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from hashlib import sha256
+import json
 
 import psycopg
 from psycopg import sql
@@ -37,21 +39,23 @@ def fetch_allowlisted_student(email: str) -> AllowlistedStudent | None:
     if not normalized_email:
         return None
 
-    cache_key = f"library:allowlist:{normalized_email}"
+    database_url = getattr(settings, "KBC_LEARNERS_DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("KBC learner directory is not configured.")
+
+    schema_name = getattr(settings, "KBC_LEARNERS_SCHEMA", "Learner").strip() or "Learner"
+    table_name = getattr(settings, "KBC_LEARNERS_TABLE", "learners").strip() or "learners"
+    email_column = getattr(settings, "KBC_LEARNERS_EMAIL_COLUMN", "email").strip() or "email"
+    name_column = getattr(settings, "KBC_LEARNERS_NAME_COLUMN", "full_name").strip() or "full_name"
+    # Separate directory sources and legacy cached admissions. Do not put the
+    # connection URL, credentials or student email in cache keys.
+    identity = json.dumps([database_url, schema_name, table_name, email_column, name_column, normalized_email])
+    cache_key = f"library:learners:v1:{sha256(identity.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if cached is not None:
         if cached == ALLOWLIST_CACHE_MISS:
             return None
         return AllowlistedStudent(**cached)
-
-    database_url = getattr(settings, "KBC_ALLOWLIST_DATABASE_URL", "").strip()
-    if not database_url:
-        raise RuntimeError("KBC allowlist database is not configured.")
-
-    schema_name = getattr(settings, "KBC_ALLOWLIST_SCHEMA", "public").strip() or "public"
-    table_name = getattr(settings, "KBC_ALLOWLIST_TABLE", "kbc_users_data").strip() or "kbc_users_data"
-    email_column = getattr(settings, "KBC_ALLOWLIST_EMAIL_COLUMN", "Email").strip() or "Email"
-    name_column = getattr(settings, "KBC_ALLOWLIST_NAME_COLUMN", "FullName").strip() or "FullName"
 
     query = sql.SQL(
         """
@@ -67,10 +71,16 @@ def fetch_allowlisted_student(email: str) -> AllowlistedStudent | None:
         table_name=sql.Identifier(table_name),
     )
 
-    with psycopg.connect(database_url, connect_timeout=5) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(query, [normalized_email])
-            row = cursor.fetchone()
+    try:
+        with psycopg.connect(database_url, connect_timeout=5) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                cursor.execute("SET LOCAL statement_timeout = '5s'")
+                cursor.execute(query, [normalized_email])
+                row = cursor.fetchone()
+    except psycopg.Error:
+        # Keep connection strings and server diagnostics out of API responses.
+        raise RuntimeError("KBC learner directory is unavailable.") from None
 
     if not row:
         cache.set(cache_key, ALLOWLIST_CACHE_MISS, ALLOWLIST_CACHE_TTL_SECONDS)
