@@ -146,6 +146,7 @@ function getRequestedAtTime(loan: Loan) {
 
 function BorrowQueue() {
   const { loans, approveLoan, updateLoan } = useAdminData();
+  const [search, setSearch] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [editingDates, setEditingDates] = useState<string | null>(null);
@@ -161,7 +162,11 @@ function BorrowQueue() {
 
   const groups = useMemo<BookGroup[]>(() => {
     const map = new Map<string, BookGroup>();
-    const orderedPending = [...pending].sort((a, b) => getRequestedAtTime(a) - getRequestedAtTime(b));
+    const query = search.trim().toLowerCase();
+    const orderedPending = pending
+      .filter((loan) => !query || [loan.bookTitle, loan.borrowerName ?? ""]
+        .some((value) => value.toLowerCase().includes(query)))
+      .sort((a, b) => getRequestedAtTime(b) - getRequestedAtTime(a));
 
     for (const loan of orderedPending) {
       const key = loan.resourceId ?? loan.bookTitle;
@@ -171,8 +176,11 @@ function BorrowQueue() {
       map.get(key)!.requests.push(loan);
     }
 
-    return [...map.values()].sort((a, b) => b.requests.length - a.requests.length);
-  }, [pending]);
+    // Insertion order keeps the book with the newest matching request first.
+    return [...map.values()];
+  }, [pending, search]);
+
+  const matchingCount = groups.reduce((total, group) => total + group.requests.length, 0);
 
   const handleConfirm = async (loanId: string) => {
     if (confirming) return;
@@ -220,7 +228,7 @@ function BorrowQueue() {
     }
   };
 
-  if (groups.length === 0) {
+  if (pending.length === 0) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 text-center py-16">
         <div className="w-14 h-14 mx-auto bg-gray-50 rounded-full flex items-center justify-center mb-4">
@@ -234,7 +242,41 @@ function BorrowQueue() {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-md">
+          <label htmlFor="borrow-queue-search" className="sr-only">Search by book or person name</label>
+          <i aria-hidden="true" className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            id="borrow-queue-search"
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by book or person name..."
+            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-700 outline-none focus:border-[#442F73]"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-gray-400 hover:text-[#442F73] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#442F73]"
+            >
+              <i aria-hidden="true" className="ri-close-line" />
+            </button>
+          )}
+        </div>
+        <p aria-live="polite" className="text-xs text-gray-500">
+          {search.trim() ? `${matchingCount} of ${pending.length} requests` : `${pending.length} requests`}
+          {" · Newest requests first"}
+        </p>
+      </div>
       {confirmError && <p role="alert" className="text-sm text-red-600">{confirmError}</p>}
+      {groups.length === 0 && (
+        <div className="rounded-2xl border border-gray-200 bg-white py-12 text-center">
+          <p className="font-medium text-gray-500">No matching requests</p>
+          <p className="mt-1 text-sm text-gray-400">Try another book or person name.</p>
+        </div>
+      )}
       {groups.map((group) => (
         <div key={group.key} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           {/* Book header */}
